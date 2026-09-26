@@ -82,10 +82,14 @@ async function handleDirectEvent(
   // Inbound media arrives as a CDN URL (often expiring); no artifact
   // ingestion in v1, so it rides along as text.
   const text = [event.content, event.mediaUrl].filter(Boolean).join("\n");
+  console.log(`📩 [MESSAGING INBOUND] Received direct message from "${event.from}" (${event.fromLabel || "no label"}) on ${event.provider}: "${text}"`);
 
-  const where = { provider_address: { provider: event.provider, address: event.from } } as const;
-  const existing = await deps.prisma.messagingIdentity.findUnique({ where });
+  const identityWhere = event.botId
+    ? { provider: event.provider, address: event.from, botId: event.botId }
+    : { provider: event.provider, address: event.from };
+  const existing = await deps.prisma.messagingIdentity.findFirst({ where: identityWhere });
   if (existing) {
+    console.log(`👤 [MESSAGING IDENTITY] Found linked identity for ${event.from} -> Bot ID: ${existing.botId}`);
     // Any reply — even a content-free reaction — ends the consecutive-
     // outbound streak, but only real text wakes the bot. The conversation
     // id is refreshed from the webhook so outbound always has a thread.
@@ -101,11 +105,15 @@ async function handleDirectEvent(
     // of their bots (only their own codes apply).
     if (await tryRedeemLinkCode(deps, event)) return;
   } else {
+    console.log(`❓ [MESSAGING IDENTITY] No linked identity found for ${event.from} on ${event.provider}`);
     // Unlinked senders: a valid link code binds this address to its issuer's
     // account and bot; otherwise the line is silent unless the deployment
     // explicitly runs as an open Poke-style signup line.
     if (await tryRedeemLinkCode(deps, event)) return;
-    if (!deps.openSignup) return;
+    if (!deps.openSignup) {
+      console.warn(`🔒 [MESSAGING INBOUND] Unlinked sender "${event.from}" sent text without a valid link code. Ignored (openSignup=false).`);
+      return;
+    }
     // Never provision a full account for a reaction or empty payload.
     if (!text) return;
   }
@@ -266,10 +274,15 @@ export async function teamChatSenderCanWakeMessageRoutines(
 ): Promise<boolean> {
   if (event.senderIsBot) return false;
 
-  const linkedIdentity = await deps.prisma.messagingIdentity.findUnique({
-    where: { provider_address: { provider: event.provider, address: event.from } },
-    select: { id: true },
-  });
+  const linkedIdentity = event.botId
+    ? await deps.prisma.messagingIdentity.findFirst({
+        where: { provider: event.provider, address: event.from, botId: event.botId },
+        select: { id: true },
+      })
+    : await deps.prisma.messagingIdentity.findFirst({
+        where: { provider: event.provider, address: event.from },
+        select: { id: true },
+      });
 
   if (event.isDirect) return Boolean(linkedIdentity);
 
@@ -278,11 +291,11 @@ export async function teamChatSenderCanWakeMessageRoutines(
     select: { id: true },
   });
   if (channel) {
-    const member = await deps.prisma.messagingChannelMember.findUnique({
-      where: { channelId_address: { channelId: channel.id, address: event.from } },
+    const members = await deps.prisma.messagingChannelMember.findMany({
+      where: { channelId: channel.id, address: event.from },
       select: { status: true },
     });
-    return member?.status === "approved";
+    return members.some((member) => member.status === "approved");
   }
 
   // Pure TeamChat workspace rooms have no personal membership ledger.
@@ -303,17 +316,22 @@ async function tryRedeemLinkCode(
 ): Promise<boolean> {
   const code = normalizeMessagingLinkCode(event.content);
   if (!code) return false;
+  console.log(`🔑 [LINK CODE] Normalized code "${code}" from ${event.from} on ${event.provider}. Redeeming...`);
   const redeemed = await redeemMessagingLinkCode(deps.prisma, {
     code,
     provider: event.provider,
     address: event.from,
     dmThreadId: event.threadId,
   });
-  if (!redeemed) return false;
+  if (!redeemed) {
+    console.warn(`❌ [LINK CODE] Code "${code}" redemption failed! (Expired, invalid, or bot already linked)`);
+    return false;
+  }
   const bot = await deps.prisma.bot.findUnique({
     where: { id: redeemed.botId },
     select: { name: true },
   });
+  console.log(`✅ [LINK CODE] Successfully redeemed code "${code}"! Linked ${event.from} -> Bot "${bot?.name ?? redeemed.botId}"`);
   await enqueueConfirmation(
     deps,
     { id: redeemed.identityId },
@@ -398,7 +416,7 @@ async function applyOwnerCommand(
 
   const connectedKey = `command:connected:${target.connection.id}`;
   const requesterIdentity = approved
-    ? await deps.prisma.messagingIdentity.findUnique({
+    ? await deps.prisma.messagingIdentity.findFirst({
         where: { botId: target.connection.requesterBotId },
       })
     : null;
@@ -474,14 +492,28 @@ async function enqueueConfirmation(
   });
 }
 
+export function resolveRootChannelThreadId(event: MessagingInboundMessage): string {
+  if (event.conversationKey) {
+    return event.conversationKey.startsWith(`${event.provider}:`)
+      ? event.conversationKey
+      : `${event.provider}:${event.conversationKey}`;
+  }
+  const parts = event.threadId.split(":");
+  if (parts.length >= 2 && parts[0] && parts[1]) {
+    return `${parts[0]}:${parts[1]}`;
+  }
+  return event.threadId;
+}
+
 async function handleChannelEvent(
   deps: MessagingInboundDeps,
   event: MessagingInboundMessage,
 ): Promise<void> {
   const channelName = event.channelName ? sanitizeMessagingLabel(event.channelName) : null;
+  const channelThreadId = resolveRootChannelThreadId(event);
   const channel = await deps.prisma.messagingChannel.upsert({
-    where: { threadId: event.threadId },
-    create: { provider: event.provider, threadId: event.threadId, name: channelName },
+    where: { threadId: channelThreadId },
+    create: { provider: event.provider, threadId: channelThreadId, name: channelName },
     update: channelName ? { name: channelName } : {},
   });
 
@@ -490,17 +522,17 @@ async function handleChannelEvent(
 
   let hasUnlinked = false;
   for (const address of participants) {
-    const identity = await deps.prisma.messagingIdentity.findUnique({
-      where: { provider_address: { provider: event.provider, address } },
+    const identity = await deps.prisma.messagingIdentity.findFirst({
+      where: { provider: event.provider, address },
     });
-    const member = await deps.prisma.messagingChannelMember.findUnique({
-      where: { channelId_address: { channelId: channel.id, address } },
-    });
+    let member = identity
+      ? await deps.prisma.messagingChannelMember.findUnique({
+          where: { channelId_identityId_address: { channelId: channel.id, identityId: identity.id, address } },
+        })
+      : await deps.prisma.messagingChannelMember.findFirst({
+          where: { channelId: channel.id, address },
+        });
     if (member) {
-      // Compare against the current identity, not just null: unlinking
-      // deletes the identity row but leaves this FK-free column pointing at
-      // the dead id, so a re-link would otherwise never reattach and the
-      // member would sit in the channel unreachable by every lookup.
       if (identity && member.identityId !== identity.id) {
         await deps.prisma.messagingChannelMember.update({
           where: { id: member.id },
@@ -509,7 +541,6 @@ async function handleChannelEvent(
         if (member.status === "invited") await inviteMember(deps, channel, identity);
       }
       if (member.status === "left") {
-        // Back in the group: restart the approval cycle.
         await deps.prisma.messagingChannelMember.update({
           where: { id: member.id },
           data: { status: "invited" },
@@ -519,25 +550,33 @@ async function handleChannelEvent(
       if (!identity) hasUnlinked = true;
       continue;
     }
-    // Upsert, not create: concurrent group webhooks race on the unique key.
-    await deps.prisma.messagingChannelMember.upsert({
-      where: { channelId_address: { channelId: channel.id, address } },
-      create: {
-        channelId: channel.id,
-        address,
-        identityId: identity?.id ?? null,
-        status: "invited",
-      },
-      update: {},
-    });
-    if (identity) await inviteMember(deps, channel, identity);
-    else hasUnlinked = true;
+    if (identity) {
+      await deps.prisma.messagingChannelMember.create({
+        data: {
+          channelId: channel.id,
+          address,
+          identityId: identity.id,
+          status: "invited",
+        },
+      });
+      await inviteMember(deps, channel, identity);
+    } else {
+      await deps.prisma.messagingChannelMember.create({
+        data: {
+          channelId: channel.id,
+          address,
+          identityId: null,
+          status: "invited",
+        },
+      });
+      hasUnlinked = true;
+    }
   }
 
   // Someone removed from the group must stop receiving its content.
   // A webhook without a participants roster says nothing about membership —
-  // never sweep on partial data.
-  if (event.participants.length > 0) {
+  // never sweep on partial data (e.g. single-participant message webhooks).
+  if (event.participants.length > 1) {
     await deps.prisma.messagingChannelMember.updateMany({
       where: {
         channelId: channel.id,
@@ -570,36 +609,60 @@ async function handleChannelEvent(
   }
 
   // Only approved owners' bots participate.
-  const senderMember = await deps.prisma.messagingChannelMember.findUnique({
-    where: { channelId_address: { channelId: channel.id, address: event.from } },
+  const senderMembers = await deps.prisma.messagingChannelMember.findMany({
+    where: { channelId: channel.id, address: event.from },
   });
-  if (senderMember?.status !== "approved") return;
-
-  const senderIdentity = senderMember.identityId
-    ? await deps.prisma.messagingIdentity.findUnique({ where: { id: senderMember.identityId } })
-    : null;
-  const fromLabel = senderIdentity
-    ? await ownerFirstName(deps.prisma, senderIdentity.userId, event.from)
-    : event.from;
+  if (!senderMembers.some((member) => member.status === "approved")) return;
 
   const approved = await deps.prisma.messagingChannelMember.findMany({
-    where: { channelId: channel.id, status: "approved", identityId: { not: null } },
+    where: {
+      channelId: channel.id,
+      status: "approved",
+      identityId: { not: null },
+    },
   });
+
+  const approvedIdentityIds = approved
+    .map((m) => m.identityId)
+    .filter((id): id is string => Boolean(id));
+  const identities =
+    approvedIdentityIds.length > 0
+      ? await deps.prisma.messagingIdentity.findMany({
+          where: { id: { in: approvedIdentityIds } },
+        })
+      : [];
+  const identityById = new Map(identities.map((identity) => [identity.id, identity]));
+
   const block: MessageBlock = {
     kind: "channel_message",
     provider: event.provider,
     ...(event.transport ? { transport: event.transport } : {}),
     channelId: channel.id,
     fromAddress: event.from,
-    fromLabel,
+    fromLabel: event.fromLabel ?? event.from,
     text: event.content,
     hop: 0,
+    ...(event.replyThreadId ? { replyThreadId: event.replyThreadId } : {}),
   };
-  const prompt = `[Group "${channel.name ?? "group"}", ${fromLabel}]: ${event.content}`;
-  for (const member of approved) {
-    const identity = await deps.prisma.messagingIdentity.findUnique({
-      where: { id: member.identityId! },
-    });
+  const senderName = event.fromLabel ?? event.from;
+  const prompt = `[Group '${channel.name ?? "group"}', ${senderName}]: ${event.content}`;
+  const mentions = extractMentions(event.content);
+  console.log(`📣 [MENTIONS] Extracted mentions from "${event.content}": [${mentions.join(", ")}]`);
+  const identityBotNames = new Map<string, string>();
+  for (const identity of identities) {
+    const bot = await deps.prisma.bot.findUnique({ where: { id: identity.botId }, select: { name: true } });
+    if (bot?.name) identityBotNames.set(identity.id, bot.name.toLowerCase());
+  }
+  const targetMembers =
+    mentions.length > 0
+      ? approved.filter((m) => {
+          const botName = m.identityId ? identityBotNames.get(m.identityId) : undefined;
+          return botName ? mentions.includes(botName) : false;
+        })
+      : approved;
+  console.log(`📣 [MENTIONS] Targeting ${targetMembers.length} of ${approved.length} approved members`);
+  for (const member of targetMembers) {
+    const identity = member.identityId ? identityById.get(member.identityId) : undefined;
     if (!identity) continue;
     const thread = await deps.prisma.thread.findFirst({ where: { botId: identity.botId } });
     if (!thread) continue;
@@ -634,6 +697,11 @@ async function inviteMember(
   channel: { id: string; name: string | null },
   identity: IdentityRow,
 ): Promise<void> {
+  const currentMember = await deps.prisma.messagingChannelMember.findUnique({
+    where: { channelId_identityId_address: { channelId: channel.id, identityId: identity.id, address: identity.address } },
+  });
+  if (currentMember?.status === "approved") return;
+
   const name = channel.name ?? "a group chat";
   // A returning member restarts the approval cycle; clear the prior invite
   // row or skipDuplicates would leave them with no prompt to answer.
@@ -668,6 +736,12 @@ async function inviteMember(
   await deps.jobs.enqueue(messagingDeliverJob()).catch((error) => {
     getLogger().error("messaging invite enqueue error", error);
   });
+}
+
+function extractMentions(text: string): string[] {
+  const matches = text.match(/@[\w.-]+/g);
+  if (!matches) return [];
+  return matches.map((m) => m.slice(1).toLowerCase());
 }
 
 async function ownerFirstName(

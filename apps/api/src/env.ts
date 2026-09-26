@@ -45,6 +45,7 @@ export interface AppEnv {
   boxApiKey: string | undefined;
   boxApiUrl: string | undefined;
   composioApiKey: string | undefined;
+  kiloApiKey: string | undefined;
   /** Optional integrations.sh-compatible catalog base URL. */
   integrationsCatalogUrl: string | undefined;
   pipedreamClientId: string | undefined;
@@ -134,6 +135,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     boxApiKey: source.BOX_API_KEY,
     boxApiUrl: source.BOX_API_URL ?? source.BOX_BASE_URL,
     composioApiKey: source.COMPOSIO_API_KEY,
+    kiloApiKey: optional(source.KILO_API_KEY),
     integrationsCatalogUrl: optional(source.INTEGRATIONS_CATALOG_URL),
     pipedreamClientId: optional(source.PIPEDREAM_CLIENT_ID),
     pipedreamClientSecret: optional(source.PIPEDREAM_CLIENT_SECRET),

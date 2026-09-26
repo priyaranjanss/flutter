@@ -337,8 +337,10 @@ export interface MessagingSurface {
    * Verify and process one platform webhook request. Parsed events reach the
    * sink registered via onInbound before the returned response resolves.
    * Returns null for a provider this surface does not host.
+   * `botId` is provided when the webhook path identifies a specific bot
+   * (e.g. multi-app Slack); omit it for the default deployment-wide adapter.
    */
-  handleWebhook(provider: string, request: Request): Promise<Response> | null;
+  handleWebhook(provider: string, request: Request, botId?: string): Promise<Response> | null;
   /** Register the single downstream consumer of inbound events. */
   onInbound(sink: (event: MessagingInboundEvent) => Promise<void>): void;
   sendToThread(

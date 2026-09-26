@@ -19,7 +19,7 @@ describe("provisionMessagingIdentity", () => {
       updatedAt: new Date("2026-08-28T00:00:00.000Z"),
     };
     const prisma = {
-      messagingIdentity: { findUnique: vi.fn(async () => existing) },
+      messagingIdentity: { findFirst: vi.fn(async () => existing) },
       thread: { findFirst: vi.fn(async () => ({ id: "thread-1" })) },
       user: { create: vi.fn() },
     };
@@ -38,14 +38,14 @@ describe("provisionMessagingIdentity", () => {
       threadId: "thread-1",
       created: false,
     });
-    expect(prisma.messagingIdentity.findUnique).toHaveBeenCalledWith({
-      where: { provider_address: { provider: "sendblue", address: "+15551234567" } },
+    expect(prisma.messagingIdentity.findFirst).toHaveBeenCalledWith({
+      where: { provider: "sendblue", address: "+15551234567" },
     });
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it("rejects malformed addresses", async () => {
-    const prisma = { messagingIdentity: { findUnique: vi.fn() } };
+    const prisma = { messagingIdentity: { findFirst: vi.fn() } };
     for (const bad of ["", "+1 (555) 123-4567", "has space", "a".repeat(129)]) {
       await expect(
         provisionMessagingIdentity(
@@ -55,7 +55,7 @@ describe("provisionMessagingIdentity", () => {
         ),
       ).rejects.toThrow(/Invalid messaging address/);
     }
-    expect(prisma.messagingIdentity.findUnique).not.toHaveBeenCalled();
+    expect(prisma.messagingIdentity.findFirst).not.toHaveBeenCalled();
   });
 
   it("throws instead of returning an empty thread id when the thread is missing", async () => {
@@ -74,7 +74,7 @@ describe("provisionMessagingIdentity", () => {
       updatedAt: new Date("2026-08-28T00:00:00.000Z"),
     };
     const prisma = {
-      messagingIdentity: { findUnique: vi.fn(async () => existing) },
+      messagingIdentity: { findFirst: vi.fn(async () => existing) },
       thread: { findFirst: vi.fn(async () => null) },
     };
     await expect(
@@ -99,7 +99,7 @@ describe("provisionMessagingIdentity create race", () => {
     };
     const prisma = {
       messagingIdentity: {
-        findUnique: vi
+        findFirst: vi
           .fn()
           .mockImplementationOnce(async () => null)
           .mockImplementationOnce(async () => winner),
@@ -108,7 +108,7 @@ describe("provisionMessagingIdentity create race", () => {
         }),
       },
       user: {
-        findUnique: vi.fn(async () => ({
+        findFirst: vi.fn(async () => ({
           id: "user-1",
           email: "msg-sendbluex@messaging.invalid",
         })),
@@ -169,6 +169,11 @@ describe("messaging identity isolation", () => {
     }[] = [];
     const prisma = {
       user: {
+        findFirst: vi.fn(
+          async ({ where }: { where: { id?: string; email?: string } }) =>
+            users.find((user) => (where.id ? user.id === where.id : user.email === where.email)) ??
+            null,
+        ),
         findUnique: vi.fn(
           async ({ where }: { where: { id?: string; email?: string } }) =>
             users.find((user) => (where.id ? user.id === where.id : user.email === where.email)) ??
@@ -180,16 +185,14 @@ describe("messaging identity isolation", () => {
         }),
       },
       messagingIdentity: {
-        findUnique: vi.fn(
+        findFirst: vi.fn(
           async ({
             where,
           }: {
-            where: { provider_address: { provider: string; address: string } };
+            where: { provider: string; address: string };
           }) =>
             identities.find(
-              (row) =>
-                row.provider === where.provider_address.provider &&
-                row.address === where.provider_address.address,
+              (row) => row.provider === where.provider && row.address === where.address,
             ) ?? null,
         ),
         create: vi.fn(async ({ data }: { data: (typeof identities)[number] }) => {
@@ -229,7 +232,7 @@ describe("messaging identity isolation", () => {
     expect(result.spaceId).not.toBe("space-attacker");
     expect(f.users).toHaveLength(2);
     expect(f.users[1]!.email).not.toBe(f.users[0]!.email);
-    expect(f.prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: result.userId } });
+    expect(f.prisma.user.findFirst).toHaveBeenCalledWith({ where: { id: result.userId } });
     expect(await f.provision("sendblue", "+15550001111")).toMatchObject({
       userId: result.userId,
       created: false,

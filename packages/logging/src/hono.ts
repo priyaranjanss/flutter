@@ -25,13 +25,17 @@ export function requestLogging(logger?: Logger): MiddlewareHandler {
         const failure = c.error ?? thrown;
         if (failure) log.error("http.request.failed", failure);
         const status = failure && c.res.status < 400 ? 500 : c.res.status;
-        const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
-        log[level]("http.request.completed", {
-          "http.method": c.req.method,
-          "http.route": matchedRoute(c.req.path, c.req.routePath),
-          "http.status": status,
-          "http.duration_ms": Math.round(performance.now() - started),
-        });
+        const suppress200 =
+          process.env.SUPPRESS_HTTP_200_LOGS === "true" || process.env.LOG_HTTP_200 === "false";
+        if (!suppress200 || status >= 400) {
+          const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
+          log[level]("http.request.completed", {
+            "http.method": c.req.method,
+            "http.route": matchedRoute(c.req.path, c.req.routePath),
+            "http.status": status,
+            "http.duration_ms": Math.round(performance.now() - started),
+          });
+        }
       }
     });
   };

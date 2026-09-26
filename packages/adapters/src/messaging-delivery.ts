@@ -10,6 +10,7 @@ import { botMessageHopExhausted, nextBotMessageHop } from "@rakazo/core";
 import type { PrismaClient, ThreadEvents } from "@rakazo/db";
 import { appendEventInTransaction, createThreadMessageInTransaction } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
+import { resolveMessagingThreadId } from "./team-chat-messaging.js";
 
 /**
  * Margin under vendor consecutive-outbound caps (sendblue enforces one hard):
@@ -90,7 +91,7 @@ async function mirrorRun(deps: MessagingDeliveryDeps, runId: string): Promise<vo
     return;
   }
 
-  const identity = await deps.prisma.messagingIdentity.findUnique({
+  const identity = await deps.prisma.messagingIdentity.findFirst({
     where: { botId: run.botId },
   });
   if (!identity) return;
@@ -117,6 +118,14 @@ async function mirrorRun(deps: MessagingDeliveryDeps, runId: string): Promise<vo
   await deps.prisma.messagingOutbound.createMany({ data: rows, skipDuplicates: true });
 }
 
+export function formatGroupOutboundBody(fromLabel: string, rawText: string): string {
+  let cleaned = rawText.trim();
+  const PREFIX_RE = /^(?:[a-zA-Z0-9_\s'-]+(?:'s agent|'s bot|'s assistant| agent| bot| assistant)?:\s*)+/i;
+  cleaned = cleaned.replace(PREFIX_RE, "").trim();
+  if (!cleaned) return "";
+  return `${fromLabel}: ${cleaned}`;
+}
+
 /**
  * Channel runs post to the group with an attribution prefix, then fan the
  * post out internally to peer approved bots: context only by default, a
@@ -127,7 +136,7 @@ async function mirrorChannelRun(
   run: { id: string; botId: string },
   channelBlock: Extract<MessageBlock, { kind: "channel_message" }>,
 ): Promise<void> {
-  const identity = await deps.prisma.messagingIdentity.findUnique({
+  const identity = await deps.prisma.messagingIdentity.findFirst({
     where: { botId: run.botId },
   });
   if (!identity) return;
@@ -139,8 +148,11 @@ async function mirrorChannelRun(
     where: { id: identity.userId },
     select: { name: true },
   });
-  const firstName = owner?.name.trim().split(/\s+/)[0] || "Owner";
-  const fromLabel = `${firstName}'s agent`;
+  const bot = await deps.prisma.bot.findUnique({
+    where: { id: run.botId },
+    select: { name: true },
+  });
+  const fromLabel = bot?.name.trim() || run.botId;
 
   const replies = await deps.prisma.message.findMany({
     select: { id: true, blocks: true },
@@ -166,8 +178,9 @@ async function mirrorChannelRun(
     data: messages.map(({ message, text }) => ({
       idempotencyKey: `msg:${message.id}`,
       kind: "group",
-      threadId: channel.threadId,
-      body: `${fromLabel}: ${text}`,
+      identityId: identity.id,
+      threadId: resolveMessagingThreadId(channel.threadId, channelBlock.replyThreadId ?? null),
+      body: formatGroupOutboundBody(fromLabel, text),
       sourceMessageId: message.id,
     })),
     skipDuplicates: true,
@@ -184,7 +197,7 @@ async function mirrorChannelRun(
   });
   for (const { message, text } of messages) {
     for (const peer of peers) {
-      const peerIdentity = await deps.prisma.messagingIdentity.findUnique({
+      const peerIdentity = await deps.prisma.messagingIdentity.findFirst({
         where: { id: peer.identityId! },
       });
       if (!peerIdentity) continue;
@@ -202,9 +215,10 @@ async function mirrorChannelRun(
         ...(channelBlock.transport ? { transport: channelBlock.transport } : {}),
         channelId: channel.id,
         fromAddress: identity.address,
-        fromLabel,
+        fromLabel: bot?.name ?? fromLabel,
         text,
         hop,
+        ...(channelBlock.replyThreadId ? { replyThreadId: channelBlock.replyThreadId } : {}),
       };
       const clientNonce = `messaging-peer:${message.id}:${peerIdentity.botId}`;
       const mentioned = peerBot?.name
@@ -217,7 +231,7 @@ async function mirrorChannelRun(
           botId: peerIdentity.botId,
           userId: peerIdentity.userId,
           blocks: [block],
-          prompt: `[Group "${channel.name ?? "group"}" — ${fromLabel}]: ${text}`,
+          prompt: `[Group "${channel.name ?? "group"}" — ${bot?.name ?? fromLabel}]: ${text}`,
           trigger: "messaging",
           clientNonce,
         });
@@ -352,9 +366,13 @@ async function drain(deps: MessagingDeliveryDeps, context: AdapterContext): Prom
           });
           continue;
         }
+        const groupIdentity = row.identityId
+          ? await deps.prisma.messagingIdentity.findUnique({ where: { id: row.identityId } })
+          : null;
+        const sendContext = groupIdentity ? { ...context, botId: groupIdentity.botId } : context;
         const sent = await deps.messaging.sendToThread(
           { threadId: row.threadId, body: row.body },
-          context,
+          sendContext,
         );
         await deps.prisma.messagingOutbound.update({
           where: { id: row.id },
@@ -372,6 +390,7 @@ async function drain(deps: MessagingDeliveryDeps, context: AdapterContext): Prom
         });
         continue;
       }
+      const identityContext = { ...context, botId: identity.botId };
       // Sendblue's consecutive-outbound vendor cap; other providers have no
       // equivalent limit, so do not hold Slack/WhatsApp/Telegram DMs.
       if (
@@ -385,7 +404,7 @@ async function drain(deps: MessagingDeliveryDeps, context: AdapterContext): Prom
         });
         continue;
       }
-      const threadId = await resolveDirectThread(deps, identity, context);
+      const threadId = await resolveDirectThread(deps, identity, identityContext);
       const invitePair = connectInvitePair(row.idempotencyKey);
       if (invitePair) {
         const result = await sendConnectInvite(
@@ -393,7 +412,7 @@ async function drain(deps: MessagingDeliveryDeps, context: AdapterContext): Prom
           { id: row.id, body: row.body },
           threadId,
           invitePair,
-          context,
+          identityContext,
         );
         if (result === "delivered") {
           await deps.prisma.messagingIdentity.update({
@@ -403,7 +422,9 @@ async function drain(deps: MessagingDeliveryDeps, context: AdapterContext): Prom
         }
         continue;
       }
-      const sent = await deps.messaging.sendToThread({ threadId, body: row.body }, context);
+      console.log(`📤 [OUTBOUND DELIVERY] Sending message to ${identity.provider} (${identity.address}): "${row.body}"`);
+      const sent = await deps.messaging.sendToThread({ threadId, body: row.body }, identityContext);
+      console.log(`✅ [OUTBOUND DELIVERY] Successfully sent message to ${identity.provider}! Handle: ${sent.handle}`);
       await deps.prisma.messagingOutbound.updateMany({
         where: { id: row.id },
         data: { providerHandle: sent.handle },
@@ -412,11 +433,12 @@ async function drain(deps: MessagingDeliveryDeps, context: AdapterContext): Prom
         where: { id: identity.id },
         data: { outboundSinceInbound: { increment: 1 } },
       });
-    } catch {
+    } catch (error) {
       // Transient provider errors go back to pending with a backed-off
       // retry; only an exhausted budget is terminal.
       const attempts = (row.attempts ?? 0) + 1;
       const exhausted = attempts >= MESSAGING_OUTBOUND_MAX_ATTEMPTS;
+      console.error(`❌ [OUTBOUND DELIVERY ERROR] Failed to send outbound message (Attempt ${attempts}/${MESSAGING_OUTBOUND_MAX_ATTEMPTS}). Error:`, error);
       const retryAt = exhausted
         ? null
         : new Date(Date.now() + messagingOutboundRetryDelayMs(attempts));

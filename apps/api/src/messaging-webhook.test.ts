@@ -8,10 +8,10 @@ import { MESSAGING_WEBHOOK_BASE_PATH, mountMessagingWebhookRoutes } from "./mess
  * handling all live inside the surface's platform adapters (covered in
  * packages/adapters). These tests pin the routing contract only.
  */
-function mount(respond?: (provider: string, request: Request) => Response) {
-  const handleWebhook = vi.fn((provider: string, request: Request) => {
+function mount(respond?: (provider: string, request: Request, botId?: string) => Response) {
+  const handleWebhook = vi.fn((provider: string, request: Request, botId?: string) => {
     if (provider !== "sendblue" && provider !== "whatsapp") return null;
-    return Promise.resolve(respond?.(provider, request) ?? Response.json({ ok: true }));
+    return Promise.resolve(respond?.(provider, request, botId) ?? Response.json({ ok: true }));
   });
   const app = new Hono();
   mountMessagingWebhookRoutes(app, {
@@ -37,8 +37,9 @@ describe("messaging webhook HTTP routes", () => {
 
     expect(res.status).toBe(200);
     expect(handleWebhook).toHaveBeenCalledTimes(1);
-    const [provider, request] = handleWebhook.mock.calls[0]! as [string, Request];
+    const [provider, request, botId] = handleWebhook.mock.calls[0]! as [string, Request, string | undefined];
     expect(provider).toBe("sendblue");
+    expect(botId).toBeUndefined();
     // The raw Request passes through untouched so platform adapters can
     // verify signatures against the exact body bytes and headers.
     expect(request.method).toBe("POST");
@@ -52,7 +53,7 @@ describe("messaging webhook HTTP routes", () => {
 
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toEqual({ error: "Unknown provider" });
-    expect(handleWebhook).toHaveBeenCalledWith("carrier-pigeon", expect.any(Request));
+    expect(handleWebhook).toHaveBeenCalledWith("carrier-pigeon", expect.any(Request), undefined);
   });
 
   it("keeps the legacy phone webhook path routing to sendblue", async () => {
@@ -60,8 +61,8 @@ describe("messaging webhook HTTP routes", () => {
     const res = await app.request("/api/v1/phone/webhook", post(payload));
 
     expect(res.status).toBe(200);
-    expect(handleWebhook).toHaveBeenCalledWith("sendblue", expect.any(Request));
-    const [, request] = handleWebhook.mock.calls[0]! as [string, Request];
+    expect(handleWebhook).toHaveBeenCalledWith("sendblue", expect.any(Request), undefined);
+    const [, request] = handleWebhook.mock.calls[0]! as [string, Request, string | undefined];
     await expect(request.text()).resolves.toBe(payload);
   });
 
@@ -75,8 +76,8 @@ describe("messaging webhook HTTP routes", () => {
 
   it("passes GET requests through for provider challenges", async () => {
     // WhatsApp verifies its webhook with a GET hub.challenge handshake.
-    const { app, handleWebhook } = mount((_provider, request) => {
-      const challenge = new URL(request.url).searchParams.get("hub.challenge");
+    const { app, handleWebhook } = mount((_provider, _request, _botId) => {
+      const challenge = new URL(_request.url).searchParams.get("hub.challenge");
       return new Response(challenge ?? "", { status: 200 });
     });
     const res = await app.request(
@@ -86,7 +87,7 @@ describe("messaging webhook HTTP routes", () => {
 
     expect(res.status).toBe(200);
     await expect(res.text()).resolves.toBe("12345");
-    const [provider, request] = handleWebhook.mock.calls[0]! as [string, Request];
+    const [provider, request] = handleWebhook.mock.calls[0]! as [string, Request, string | undefined];
     expect(provider).toBe("whatsapp");
     expect(request.method).toBe("GET");
   });

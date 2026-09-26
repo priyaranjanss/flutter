@@ -80,6 +80,25 @@ describe("runFailureError", () => {
     expect(long).toHaveLength(301);
     expect(long?.endsWith("…")).toBe(true);
   });
+
+  it("strips literal HTML tags and decodes common entities", () => {
+    expect(
+      runFailureError({ type: "run.failed", payload: { error: "<p>provider missing</p>" } }),
+    ).toBe("provider missing");
+    expect(
+      runFailureError({ type: "run.failed", payload: { error: "Error: &lt;unknown&gt;" } }),
+    ).toBe("Error: <unknown>");
+    expect(
+      runFailureError({ type: "run.failed", payload: { error: "a &amp; b" } }),
+    ).toBe("a & b");
+  });
+
+  it("falls back to the original message when stripping leaves nothing usable", () => {
+    expect(runFailureError({ type: "run.failed", payload: { error: "&nbsp;" } })).toBe("&nbsp;");
+    expect(runFailureError({ type: "run.failed", payload: { error: "<p>&nbsp;</p>" } })).toBe(
+      "<p>&nbsp;</p>",
+    );
+  });
 });
 
 describe("projectMessages", () => {

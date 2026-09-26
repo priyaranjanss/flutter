@@ -171,6 +171,18 @@ export function isRunTerminalEvent(event: { type: string }): boolean {
 
 const RUN_FAILURE_ERROR_MAX = 300;
 
+function stripHtml(value: string): string {
+  const withoutTags = value.replace(/<[^>]*>/g, "");
+  return withoutTags
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+}
+
 /** Reason a run failed, clamped for display, or null when there is no usable error to show. */
 export function runFailureError(event: {
   type: string;
@@ -179,7 +191,9 @@ export function runFailureError(event: {
   if (event.type !== "run.failed") return null;
   const error = event.payload?.error;
   if (typeof error !== "string" || !error.trim()) return null;
-  const message = error.trim();
+  const trimmed = error.trim();
+  const message = stripHtml(trimmed);
+  if (!message) return trimmed;
   // A provider can fail with a stack or a whole response body; the run record keeps the full
   // text while the UI shows a bounded first line.
   return message.length > RUN_FAILURE_ERROR_MAX

@@ -202,6 +202,7 @@ export interface SendUserMessageInput {
   createRun?: boolean;
   /** When true, start a new run even if the bot is already busy (team-chat delivery). */
   allowParallelRun?: boolean;
+  replyToMessageId?: string;
 }
 
 export interface SendUserMessageResult {
@@ -375,6 +376,7 @@ export async function sendUserMessage(
         role: "user",
         blocks: input.blocks,
         clientNonce: input.clientNonce,
+        replyToMessageId: input.replyToMessageId,
       });
       const createRun = input.createRun !== false;
       const busy =
@@ -1254,29 +1256,40 @@ export async function* followThreadEvents(
   cursor: number,
   realtime?: RealtimeFanout,
   signal?: AbortSignal,
-  catchUpMs = realtime ? PUSH_CATCH_UP_MS : POLL_ONLY_CATCH_UP_MS,
+  catchUpMs?: number,
 ): AsyncGenerator<ProductEvent> {
   let seq = cursor;
   const latch = new ChangeLatch();
-  const unsubscribe = realtime
-    ? await realtime
-        .subscribe(threadTopic(threadId), () => latch.notify())
-        .catch(() => async () => {})
-    : async () => {};
+  let realtimeSubscribed = false;
+  let unsubscribe: () => Promise<void> = async () => {};
+  if (realtime) {
+    try {
+      unsubscribe = await realtime.subscribe(threadTopic(threadId), () => latch.notify());
+      realtimeSubscribed = true;
+    } catch (error) {
+      getLogger().error("thread realtime subscribe failed", { threadId, error });
+    }
+  }
+  const effectiveCatchUpMs = catchUpMs ?? (realtimeSubscribed ? PUSH_CATCH_UP_MS : POLL_ONLY_CATCH_UP_MS);
   try {
     while (!signal?.aborted) {
       const observedGeneration = latch.generation;
       let batchSize = 0;
+      let yielded = 0;
       do {
         const events = await eventsAfter(prisma, threadId, seq, EVENT_BATCH_SIZE);
         batchSize = events.length;
         for (const event of events) {
           seq = event.seq;
           yield mapProductEvent(event);
+          yielded++;
+          if (yielded % 64 === 0) {
+            await Promise.resolve();
+          }
         }
       } while (batchSize === EVENT_BATCH_SIZE && !signal?.aborted);
       if (signal?.aborted) break;
-      await latch.waitForChange(observedGeneration, catchUpMs, signal);
+      await latch.waitForChange(observedGeneration, effectiveCatchUpMs, signal);
     }
   } finally {
     await unsubscribe();

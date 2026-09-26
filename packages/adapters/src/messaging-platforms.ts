@@ -312,3 +312,18 @@ function sendblueTransport(raw: unknown): string | null {
   const service = (raw as { service?: unknown }).service;
   return service === "iMessage" || service === "SMS" || service === "RCS" ? service : null;
 }
+
+export function createSlackPlatformFromCredentials(
+  botId: string,
+  credentials: { botToken: string; signingSecret: string },
+): MessagingPlatform {
+  return {
+    provider: "slack",
+    capabilities: { direct: true, groups: true, typing: false },
+    adapter: createSlackAdapter({
+      botToken: credentials.botToken,
+      signingSecret: credentials.signingSecret,
+    }),
+    enrichTeamRoom: enrichSlackTeamRoom,
+  };
+}

@@ -4093,7 +4093,7 @@ export function createRouter(deps: RouterDeps) {
           if (!bot) throw new ORPCError("NOT_FOUND");
           // One chat identity per bot: delivery mirrors a bot's replies to
           // exactly one conversation.
-          const linked = await deps.prisma.messagingIdentity.findUnique({
+          const linked = await deps.prisma.messagingIdentity.findFirst({
             where: { botId: bot.id },
             select: { id: true },
           });
@@ -4261,7 +4261,7 @@ export function createRouter(deps: RouterDeps) {
             });
             if (!input.accept) return { updated: row, notifyRequester: false };
             // Parity with the text-command path: the requester hears about it.
-            const requesterIdentity = await tx.messagingIdentity.findUnique({
+            const requesterIdentity = await tx.messagingIdentity.findFirst({
               where: { botId: connection.requesterBotId },
             });
             if (!requesterIdentity) return { updated: row, notifyRequester: false };
@@ -4325,6 +4325,85 @@ export function createRouter(deps: RouterDeps) {
               },
             });
           });
+          return { ok: true as const };
+        }),
+      },
+      credentials: {
+        list: authed.messaging.credentials.list.handler(async ({ context }) => {
+          const bots = await deps.prisma.bot.findMany({
+            where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+            select: { id: true },
+          });
+          const botIds = new Set(bots.map((bot) => bot.id));
+          const rows = await deps.prisma.botMessagingCredential.findMany({
+            where: { botId: { in: [...botIds] } },
+            orderBy: { createdAt: "asc" },
+          });
+          return rows.map((row) => ({
+            id: row.id,
+            botId: row.botId,
+            provider: row.provider,
+            workspaceId: row.workspaceId,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+          }));
+        }),
+        create: authed.messaging.credentials.create.handler(async ({ context, input }) => {
+          const bot = await deps.prisma.bot.findFirst({
+            where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
+            select: { id: true },
+          });
+          if (!bot) throw new ORPCError("NOT_FOUND");
+          const row = await deps.prisma.botMessagingCredential.create({
+            data: {
+              botId: input.botId,
+              provider: input.provider,
+              workspaceId: input.workspaceId ?? null,
+              config: input.config,
+            },
+          });
+          return {
+            id: row.id,
+            botId: row.botId,
+            provider: row.provider,
+            workspaceId: row.workspaceId,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+          };
+        }),
+        update: authed.messaging.credentials.update.handler(async ({ context, input }) => {
+          const existing = await deps.prisma.botMessagingCredential.findFirst({
+            where: {
+              id: input.id,
+              bot: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+            },
+          });
+          if (!existing) throw new ORPCError("NOT_FOUND");
+          const row = await deps.prisma.botMessagingCredential.update({
+            where: { id: input.id },
+            data: {
+              ...(input.config ? { config: input.config } : {}),
+              ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+            },
+          });
+          return {
+            id: row.id,
+            botId: row.botId,
+            provider: row.provider,
+            workspaceId: row.workspaceId,
+            createdAt: row.createdAt.toISOString(),
+            updatedAt: row.updatedAt.toISOString(),
+          };
+        }),
+        remove: authed.messaging.credentials.remove.handler(async ({ context, input }) => {
+          const existing = await deps.prisma.botMessagingCredential.findFirst({
+            where: {
+              id: input.id,
+              bot: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+            },
+          });
+          if (!existing) throw new ORPCError("NOT_FOUND");
+          await deps.prisma.botMessagingCredential.delete({ where: { id: input.id } });
           return { ok: true as const };
         }),
       },
@@ -5343,7 +5422,7 @@ async function messagingConnectionDto(
     where: { id: peerBotId },
     select: { name: true },
   });
-  const peerIdentity = await prisma.messagingIdentity.findUnique({
+  const peerIdentity = await prisma.messagingIdentity.findFirst({
     where: { botId: peerBotId },
     select: { userId: true },
   });

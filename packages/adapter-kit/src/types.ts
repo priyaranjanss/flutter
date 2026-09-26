@@ -603,6 +603,8 @@ export interface MessagingInboundMessage {
   senderIsBot?: boolean;
   /** Display names for room participants when the platform reports them. */
   participantNames?: string[];
+  /** Bot id when the webhook was routed through a bot-specific adapter. */
+  botId?: string;
 }
 
 /** Provider-neutral inbound team/external room message for TeamChatBridge. */

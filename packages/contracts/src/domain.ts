@@ -816,6 +816,16 @@ export const MessagingAgentConnectionSchema = z.object({
 });
 export type MessagingAgentConnection = z.infer<typeof MessagingAgentConnectionSchema>;
 
+export const MessagingCredentialSchema = z.object({
+  id: Id,
+  botId: Id,
+  provider: z.string(),
+  workspaceId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type MessagingCredential = z.infer<typeof MessagingCredentialSchema>;
+
 export const RunSchema = z.object({
   id: Id,
   botId: Id,

@@ -245,6 +245,8 @@ export const MessageBlock = z.discriminatedUnion("kind", [
     fromLabel: z.string(),
     text: z.string(),
     hop: z.number().int().nonnegative().optional(),
+    /** Provider thread id for in-channel replies (Slack thread_ts); null for channel root. */
+    replyThreadId: z.string().optional(),
   }),
   z.object({
     /** Shown in the sending bot's own chat, so the user can see what it sent. */

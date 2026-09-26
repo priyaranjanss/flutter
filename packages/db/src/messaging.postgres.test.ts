@@ -76,8 +76,8 @@ describePostgres("provisionMessagingIdentity (PostgreSQL)", () => {
     expect(bot!.thread).toBeTruthy();
     expect(result.threadId).toBe(bot!.thread!.id);
 
-    const identity = await prisma.messagingIdentity.findUnique({
-      where: { provider_address: { provider, address } },
+    const identity = await prisma.messagingIdentity.findFirst({
+      where: { provider, address },
     });
     expect(identity).toBeTruthy();
     expect(identity!.userId).toBe(result.userId);
@@ -145,8 +145,8 @@ describePostgres("provisionMessagingIdentity (PostgreSQL)", () => {
 
       expect(result.created).toBe(true);
       expect(result.userId).not.toBe(orphan.id);
-      const identity = await prisma.messagingIdentity.findUnique({
-        where: { provider_address: { provider, address: partialAddress } },
+      const identity = await prisma.messagingIdentity.findFirst({
+        where: { provider, address: partialAddress },
       });
       expect(identity).toBeTruthy();
       const bots = await prisma.bot.findMany({

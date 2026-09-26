@@ -100,6 +100,14 @@ describe("loadEnv", () => {
     });
   });
 
+  it("loads Kilo gateway API key", () => {
+    const env = loadEnv({
+      ...base,
+      KILO_API_KEY: "test-kilo-key",
+    });
+    expect(env.kiloApiKey).toBe("test-kilo-key");
+  });
+
   it("throws when production omits secrets", () => {
     expect(() =>
       loadEnv({

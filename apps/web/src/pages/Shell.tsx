@@ -1682,6 +1682,16 @@ export function ShellPage() {
   const handleRunErrorPresented = useCallback((runId: string) => {
     rememberSeenRunErrorId(runId);
   }, []);
+  useEffect(() => {
+    if (runError) {
+      console.error("[run error]", runError);
+    }
+  }, [runError]);
+  useEffect(() => {
+    if (sendError) {
+      console.error("[send error]", sendError);
+    }
+  }, [sendError]);
   const transcriptMessages = useMemo(
     () => userVisibleMessages(activeSnapshot?.messages ?? [], { includePeerReceipts: true }),
     [activeSnapshot?.messages],

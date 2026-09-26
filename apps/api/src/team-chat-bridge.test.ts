@@ -1726,7 +1726,13 @@ describe("team chat bridge", () => {
     expect(sendUserMessage).toHaveBeenCalledTimes(2);
     expect(sendUserMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        blocks: [{ kind: "text", text: "Review the launch plan" }],
+        blocks: [
+          expect.objectContaining({
+            kind: "channel_message",
+            provider: "slack",
+            text: "Review the launch plan",
+          }),
+        ],
         createRun: false,
         clientNonce: "teamchat-transcript:slack:Ev-1",
       }),
@@ -1822,7 +1828,13 @@ describe("team chat bridge", () => {
     expect(sendUserMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "thread-legacy",
-        blocks: [{ kind: "text", text: "This ordinary message was already observed." }],
+        blocks: [
+          expect.objectContaining({
+            kind: "channel_message",
+            provider: "slack",
+            text: "This ordinary message was already observed.",
+          }),
+        ],
         createRun: false,
       }),
     );

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createMessagingInboundHandler,
   type MessagingInboundDeps,
+  resolveRootChannelThreadId,
   teamChatSenderCanWakeMessageRoutines,
   wakeMessageRoutines,
 } from "./messaging-inbound.js";
@@ -109,6 +110,21 @@ function createDeps(
           return identity;
         },
       ),
+      findFirst: vi.fn(
+        async ({
+          where,
+        }: {
+          where: { provider?: string; address?: string; id?: string; botId?: string };
+        }) => {
+          if (!identity) return null;
+          if (where.address && where.address !== identity.address) return null;
+          return identity;
+        },
+      ),
+      findMany: vi.fn(async ({ where }: { where: { id?: { in: string[] } } }) => {
+        if (!where.id?.in) return [];
+        return where.id.in.map((id) => ({ ...identity, id })).filter(Boolean);
+      }),
       update: vi.fn(async () => identity),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const created = { id: "mi-linked", ...data };
@@ -127,8 +143,12 @@ function createDeps(
     },
     messagingChannelMember: {
       findUnique: vi.fn(
-        async ({ where }: { where: { channelId_address: { address: string } } }) =>
-          members.find((m) => m.address === where.channelId_address.address) ?? null,
+        async ({ where }: { where: { channelId_address?: { address: string }; channelId_identityId_address?: { identityId: string } } }) => {
+          if (where.channelId_identityId_address?.identityId) {
+            return members.find((m) => m.identityId === where.channelId_identityId_address!.identityId) ?? null;
+          }
+          return members.find((m) => m.address === where.channelId_address!.address) ?? null;
+        },
       ),
       findFirst: vi.fn(async ({ where }: { where: { status?: string } }) => {
         if (where?.status === "invited") return overrides.invitedMember ?? null;
@@ -136,12 +156,29 @@ function createDeps(
         return null;
       }),
       findMany: vi.fn(
-        async ({ where }: { where: { status?: string; identityId?: { not: null } } }) =>
-          members.filter(
+        async ({
+          where,
+          include,
+        }: {
+          where: { status?: string; identityId?: { not: null } };
+          include?: { identity?: boolean };
+        }) => {
+          const filtered = members.filter(
             (m) =>
               (!where?.status || m.status === where.status) &&
               (!where?.identityId || m.identityId != null),
-          ),
+          );
+          if (include?.identity) {
+            return filtered.map((m) => {
+              const identityById = m.identityId === "mi-2" ? peerIdentity ?? null : identity;
+              return {
+                ...m,
+                identity: identityById ? { ...identityById, id: m.identityId } : null,
+              };
+            });
+          }
+          return filtered;
+        },
       ),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         members.push(data);
@@ -734,6 +771,33 @@ describe("createMessagingInboundHandler owner commands", () => {
         };
       },
     );
+    deps.prisma.messagingIdentity.findFirst = vi.fn(
+      async ({ where }: { where: { provider_address?: { provider: string; address: string }; botId?: string } }) => {
+        if (where.botId === "bot-9") {
+          return {
+            id: "mi-9",
+            provider: "sendblue",
+            address: "+15559999999",
+            userId: "user-9",
+            spaceId: "ws-9",
+            botId: "bot-9",
+            outboundSinceInbound: 0,
+          };
+        }
+        if (where.provider_address?.address === "+15551111111") {
+          return {
+            id: "mi-1",
+            provider: "sendblue",
+            address: "+15551111111",
+            userId: "user-1",
+            spaceId: "ws-1",
+            botId: "bot-1",
+            outboundSinceInbound: 0,
+          };
+        }
+        return null;
+      },
+    );
     const handle = createMessagingInboundHandler(deps);
     await handle({ ...dmEvent, content: "YES" });
 
@@ -844,6 +908,7 @@ describe("createMessagingInboundHandler channel routing", () => {
       botId: "bot-2",
       outboundSinceInbound: 0,
     };
+    const testMembers = [senderMember, peerMember];
     deps.prisma.messagingIdentity.findUnique = vi.fn(
       async ({
         where,
@@ -862,6 +927,31 @@ describe("createMessagingInboundHandler channel routing", () => {
           botId: "bot-1",
           outboundSinceInbound: 0,
         };
+      },
+    );
+    deps.prisma.messagingIdentity.findFirst = vi.fn(async () => null);
+    deps.prisma.messagingChannelMember.findMany = vi.fn(
+      async ({ where, include }: { where: { status?: string; identityId?: { not: null } }; include?: { identity?: boolean } }) => {
+        const filtered = testMembers.filter(
+          (m) =>
+            (!where?.status || m.status === where.status) &&
+            (!where?.identityId || m.identityId != null),
+        );
+        if (include?.identity) {
+          return filtered.map((m) => {
+            const identityById = m.identityId === "mi-2" ? peerIdentity : {
+              id: "mi-1",
+              provider: "sendblue",
+              address: "+15551111111",
+              userId: "user-1",
+              spaceId: "ws-1",
+              botId: "bot-1",
+              outboundSinceInbound: 0,
+            };
+            return { ...m, identity: identityById ? { ...identityById, id: m.identityId } : null };
+          });
+        }
+        return filtered;
       },
     );
     const handle = createMessagingInboundHandler(deps);

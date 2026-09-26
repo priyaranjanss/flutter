@@ -690,6 +690,64 @@ export const appContract = {
         .output(MessagingAgentConnectionSchema),
       revoke: oc.input(z.object({ connectionId: Id })).output(z.object({ ok: z.literal(true) })),
     },
+    credentials: {
+      list: oc.output(
+        z.array(
+          z.object({
+            id: Id,
+            botId: Id,
+            provider: z.string(),
+            workspaceId: z.string().nullable(),
+            createdAt: z.string(),
+            updatedAt: z.string(),
+          }),
+        ),
+      ),
+      create: oc
+        .input(
+          z.object({
+            botId: Id,
+            provider: z.string(),
+            workspaceId: z.string().nullable().optional(),
+            config: z.object({
+              botToken: z.string(),
+              signingSecret: z.string(),
+            }),
+          }),
+        )
+        .output(
+          z.object({
+            id: Id,
+            botId: Id,
+            provider: z.string(),
+            workspaceId: z.string().nullable(),
+            createdAt: z.string(),
+            updatedAt: z.string(),
+          }),
+        ),
+      update: oc
+        .input(
+          z.object({
+            id: Id,
+            config: z.object({
+              botToken: z.string(),
+              signingSecret: z.string(),
+            }).optional(),
+            workspaceId: z.string().nullable().optional(),
+          }),
+        )
+        .output(
+          z.object({
+            id: Id,
+            botId: Id,
+            provider: z.string(),
+            workspaceId: z.string().nullable(),
+            createdAt: z.string(),
+            updatedAt: z.string(),
+          }),
+        ),
+      remove: oc.input(z.object({ id: Id })).output(z.object({ ok: z.literal(true) })),
+    },
   },
   approvalRules: {
     list: oc.output(z.array(ActionApprovalRuleSchema)),

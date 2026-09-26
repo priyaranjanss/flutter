@@ -1,6 +1,7 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ModelOAuthSignInMode, ThinkingLevel } from "@rakazo/contracts";
+import { registerKiloCatalog } from "./pi-kilo-provider.js";
 import { LOCAL_PROVIDER_ID, registerLocalProvider } from "./pi-local-provider.js";
 import { SUBSCRIPTION_SIGN_IN_PROVIDERS } from "./pi-oauth.js";
 import {
@@ -34,7 +35,9 @@ export function listPiCatalog(): PiCatalogEntry[] {
 let cachedCatalog: PiCatalogEntry[] | undefined;
 
 function buildPiCatalog(): PiCatalogEntry[] {
-  const models = registerOpenAiCompatibleCatalog(registerLocalProvider(builtinModels()));
+  const models = registerKiloCatalog(
+    registerOpenAiCompatibleCatalog(registerLocalProvider(builtinModels())),
+  );
   const entries: PiCatalogEntry[] = [];
   for (const provider of models.getProviders()) {
     const apiKey = Boolean(provider.auth.apiKey);
@@ -52,12 +55,19 @@ function buildPiCatalog(): PiCatalogEntry[] {
     const modelIds = providerModels.map((model) => model.id);
     for (const model of providerModels) {
       const thinkingLevels = getSupportedThinkingLevels(model) as ThinkingLevel[];
+      const isFree = model.id.includes("free") || model.name?.toLowerCase().includes("free");
+      const modelBilling =
+        provider.id === "kilo"
+          ? isFree
+            ? "Free model on Kilo Gateway. No credits required."
+            : "Paid model on Kilo Gateway. Requires Kilo credits."
+          : billing;
       entries.push({
         provider: provider.id,
         providerName: provider.name,
         id: model.id,
         label: catalogModelLabel(model.id, model.name, modelIds),
-        billing,
+        billing: modelBilling,
         auth,
         oauthLabel,
         authHint:

@@ -19,5 +19,10 @@ describe("resolveDeploymentModel", () => {
     expect(
       resolveDeploymentModel({ OPENROUTER_API_KEY: "or-key", PI_DEFAULT_PROVIDER: "anthropic" }),
     ).toEqual({ provider: "anthropic", model: "claude-sonnet-5", key: undefined });
+    expect(resolveDeploymentModel({ KILO_API_KEY: "kilo-key", PI_DEFAULT_PROVIDER: "kilo" })).toEqual({
+      provider: "kilo",
+      model: "kilo-auto/free",
+      key: "kilo-key",
+    });
   });
 });

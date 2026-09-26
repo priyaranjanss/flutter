@@ -384,6 +384,7 @@ model Bot {
   mcpServers        BotMcpServer[]
   groupMembers      ChatGroupMember[]
   botSecrets BotSecret[]
+  botMessagingCredentials BotMessagingCredential[]
 
   externalConversations ExternalConversation[]
 
@@ -1123,14 +1124,15 @@ model MessagingIdentity {
   userId               String
   spaceId              String
   space                Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  botId                String    @unique
+  botId                String
   verifiedAt           DateTime?
   lastInboundAt        DateTime?
   outboundSinceInbound Int       @default(0)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  @@unique([provider, address])
+  @@unique([provider, address, botId])
+  @@index([botId])
   @@index([userId])
   @@map("messaging_identities")
 }
@@ -1159,7 +1161,7 @@ model MessagingChannelMember {
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
-  @@unique([channelId, address])
+  @@unique([channelId, identityId, address])
   @@index([identityId])
   @@map("messaging_channel_members")
 }
@@ -1231,6 +1233,21 @@ model BotSecret {
   @@index([botId])
   @@index([spaceId])
   @@map("bot_secrets")
+}
+
+model BotMessagingCredential {
+  id          String   @id @default(cuid())
+  botId       String
+  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  provider    String
+  workspaceId String?
+  config      Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([botId, provider])
+  @@index([provider, workspaceId])
+  @@map("bot_messaging_credentials")
 }
 
 

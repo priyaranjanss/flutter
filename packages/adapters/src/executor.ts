@@ -1524,7 +1524,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
           ? await deps.messaging.hasIdentity(bot.id)
           : false;
         const messagingContext = hasMessagingIdentity
-          ? [messagingDmSurfaceNote(), messagingChannelRun ? messagingChannelPrivacyBlock() : null]
+          ? [
+              messagingDmSurfaceNote(),
+              messagingChannelRun ? messagingChannelPrivacyBlock(bot.name) : null,
+            ]
               .filter(Boolean)
               .join("\n\n")
           : undefined;
@@ -4324,6 +4327,18 @@ export function createRunExecutor(deps: ExecutorDeps) {
               error: retryForever ? null : "Run setup failed; retrying",
               finishedAt: new Date(),
             },
+          });
+          const setupMessage = redactSecrets(
+            setupError instanceof Error ? setupError.message : String(setupError),
+            runSecrets,
+          );
+          await deps.events.append({
+            spaceId: run.spaceId,
+            threadId: thread.id,
+            botId: bot.id,
+            type: "run.failed",
+            runId,
+            payload: { error: setupMessage },
           });
           if (retryForever) {
             await deps.jobs.enqueue({

@@ -2,6 +2,7 @@ import type { ModelCatalogEntry } from "@rakazo/contracts";
 
 export const POPULAR_MODEL_PROVIDER_IDS = [
   "openrouter",
+  "kilo",
   "openai-codex",
   "anthropic",
   "openai",

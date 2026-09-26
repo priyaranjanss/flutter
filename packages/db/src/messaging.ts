@@ -54,8 +54,8 @@ export async function provisionMessagingIdentity(
     throw new Error(`Invalid messaging address for ${provider}: ${address}`);
   }
 
-  const where = { provider_address: { provider, address } } as const;
-  const existing = await prisma.messagingIdentity.findUnique({ where });
+  const where = { provider, address } as const;
+  const existing = await prisma.messagingIdentity.findFirst({ where });
   if (existing) {
     const thread = await prisma.thread.findFirst({ where: { botId: existing.botId } });
     if (!thread) throw new Error(`messaging identity ${existing.id} has no thread`);
@@ -71,7 +71,7 @@ export async function provisionMessagingIdentity(
   }
 
   const id = messagingUserId(provider, address);
-  let user = await prisma.user.findUnique({ where: { id } });
+  let user = await prisma.user.findFirst({ where: { id } });
   if (!user) {
     user = await prisma.user
       .create({
@@ -84,8 +84,7 @@ export async function provisionMessagingIdentity(
       })
       .catch((error: unknown) => {
         if (!isUniqueViolationError(error)) throw error;
-        // Only join the internal identity key, never an email someone supplied.
-        return prisma.user.findUniqueOrThrow({ where: { id } });
+        return prisma.user.findFirst({ where: { id } });
       });
   }
 
@@ -146,7 +145,7 @@ export async function provisionMessagingIdentity(
   } catch {
     // A concurrent first-inbound won the (provider, address) race; report its
     // result.
-    const winner = await prisma.messagingIdentity.findUnique({ where });
+    const winner = await prisma.messagingIdentity.findFirst({ where });
     if (!winner) {
       throw new Error(`messaging identity for ${provider}:${address} vanished after create failed`);
     }
@@ -240,16 +239,13 @@ export async function redeemMessagingLinkCode(
       // Single-use: the delete is the claim; a concurrent redemption loses.
       const { count } = await tx.messagingLinkCode.deleteMany({ where: { id: row.id } });
       if (count === 0) return null;
-      const existing = await tx.messagingIdentity.findUnique({
-        where: { provider_address: { provider: request.provider, address: request.address } },
+      const existing = await tx.messagingIdentity.findFirst({
+        where: { provider: request.provider, address: request.address, botId: row.botId },
       });
       if (existing) {
-        if (existing.userId !== row.userId) return null;
         await tx.messagingIdentity.update({
           where: { id: existing.id },
-          // The identity must follow the bot's space: runs resolve
-          // credentials, memory, and approval rules from run.spaceId.
-          data: { botId: row.botId, spaceId: row.spaceId, dmThreadId: request.dmThreadId },
+          data: { spaceId: row.spaceId, dmThreadId: request.dmThreadId },
         });
         return {
           identityId: existing.id,

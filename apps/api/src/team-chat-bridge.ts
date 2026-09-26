@@ -269,7 +269,10 @@ export class TeamChatBridge {
       },
       update: {},
     });
-    await this.ensureTranscriptMessage(externalMessage, conversation);
+    await this.ensureTranscriptMessage(
+      { ...externalMessage, provider: conversation.provider },
+      conversation,
+    );
     if (options?.queueAgent === false) {
       const deferred =
         (externalMessage.status === "deferred" &&
@@ -413,29 +416,29 @@ export class TeamChatBridge {
   private async mirrorMissingMessages(): Promise<void> {
     const target = this.target;
     if (!target) return;
-    while (true) {
-      const messages = await this.deps.prisma.externalMessage.findMany({
-        where: {
-          threadMessageId: null,
-          externalConversation: {
-            provider: this.deps.providerId,
-            botId: target.id,
-            spaceId: target.spaceId,
-          },
+    const messages = await this.deps.prisma.externalMessage.findMany({
+      where: {
+        threadMessageId: null,
+        externalConversation: {
+          provider: this.deps.providerId,
+          botId: target.id,
+          spaceId: target.spaceId,
         },
-        include: {
-          externalConversation: {
-            include: { thread: { select: { id: true } } },
-          },
+      },
+      include: {
+        externalConversation: {
+          include: { thread: { select: { id: true } } },
         },
-        orderBy: { createdAt: "asc" },
-        take: BATCH_SIZE,
-      });
-      if (messages.length === 0) return;
-      for (const message of messages) {
-        await this.ensureTranscriptMessage(message, message.externalConversation);
-      }
-    }
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
+    if (messages.length === 0) return;
+    const latest = messages[0]!;
+    await this.ensureTranscriptMessage(
+      { ...latest, provider: latest.externalConversation.provider },
+      latest.externalConversation,
+    );
   }
 
   /**
@@ -469,6 +472,9 @@ export class TeamChatBridge {
       senderName: string;
       content: string;
       threadMessageId: string | null;
+      provider: string;
+      senderId: string;
+      replyThreadId: string | null;
     },
     conversation: {
       spaceId: string;
@@ -479,17 +485,28 @@ export class TeamChatBridge {
   ): Promise<void> {
     if (message.threadMessageId) return;
     if (!conversation.thread) throw new Error("Team chat conversation has no Rakazo thread");
-    const visible = await this.deps.events.sendUserMessage({
+    const block: MessageBlock = {
+      kind: "channel_message",
+      provider: message.provider,
+      channelId: message.id,
+      fromAddress: message.senderId,
+      fromLabel: message.senderName,
+      text: message.content,
+      hop: 0,
+      ...(message.replyThreadId ? { replyThreadId: message.replyThreadId } : {}),
+    };
+    const sendInput: Parameters<typeof this.deps.events.sendUserMessage>[0] = {
       spaceId: conversation.spaceId,
       threadId: conversation.thread.id,
       botId: conversation.botId,
       userId: conversation.userId,
-      blocks: [{ kind: "text", text: message.content }],
+      blocks: [block],
       prompt: message.content,
       trigger: "messaging",
-      clientNonce: `teamchat-transcript:${this.deps.providerId}:${message.providerEventId}`,
+      clientNonce: `teamchat-transcript:${message.provider}:${message.providerEventId}`,
       createRun: false,
-    });
+    };
+    const visible = await this.deps.events.sendUserMessage(sendInput);
     await this.deps.prisma.externalMessage.update({
       where: { id: message.id },
       data: { threadMessageId: visible.messageId },

@@ -203,7 +203,7 @@ describeMessaging("messaging surface journeys", () => {
     expect(yes.status).toBe(200);
     await waitForDatabase(async () => {
       const member = await prisma.messagingChannelMember.findUnique({
-        where: { channelId_address: { channelId: channel.id, address: sender } },
+        where: { channelId_identityId_address: { channelId: channel.id, identityId: identity.id, address: sender } },
       });
       return member?.status === "approved";
     });
@@ -293,8 +293,9 @@ describeMessaging("messaging surface journeys", () => {
     );
     expect(no.status).toBe(200);
     await waitForDatabase(async () => {
+      const ownerIdentity = await findIdentity(owner);
       const member = await prisma.messagingChannelMember.findUnique({
-        where: { channelId_address: { channelId: channel.id, address: owner } },
+        where: { channelId_identityId_address: { channelId: channel.id, identityId: ownerIdentity.id, address: owner } },
       });
       return member?.status === "declined";
     });
@@ -351,8 +352,9 @@ describeMessaging("messaging surface journeys", () => {
     );
     expect(yes.status).toBe(200);
     await waitForDatabase(async () => {
+      const ownerIdentity = await findIdentity(owner);
       const member = await prisma.messagingChannelMember.findUnique({
-        where: { channelId_address: { channelId: channel.id, address: owner } },
+        where: { channelId_identityId_address: { channelId: channel.id, identityId: ownerIdentity.id, address: owner } },
       });
       return member?.status === "approved";
     });
@@ -366,8 +368,9 @@ describeMessaging("messaging surface journeys", () => {
     );
     expect(leave.status).toBe(200);
     await waitForDatabase(async () => {
+      const ownerIdentity = await findIdentity(owner);
       const member = await prisma.messagingChannelMember.findUnique({
-        where: { channelId_address: { channelId: channel.id, address: owner } },
+        where: { channelId_identityId_address: { channelId: channel.id, identityId: ownerIdentity.id, address: owner } },
       });
       return member?.status === "left";
     });
@@ -383,8 +386,9 @@ describeMessaging("messaging surface journeys", () => {
     );
     expect(rejoin.status).toBe(200);
     await waitForDatabase(async () => {
+      const ownerIdentity = await findIdentity(owner);
       const member = await prisma.messagingChannelMember.findUnique({
-        where: { channelId_address: { channelId: channel.id, address: owner } },
+        where: { channelId_identityId_address: { channelId: channel.id, identityId: ownerIdentity.id, address: owner } },
       });
       return member?.status === "invited";
     });

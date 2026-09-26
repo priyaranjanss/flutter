@@ -30,6 +30,7 @@ import {
   createRunExecutor,
   createRunSandbox,
   createRunSecretWriter,
+  createSlackPlatformFromCredentials,
   createWebProvider,
   destroyBot,
   EmailEmulator,
@@ -48,6 +49,7 @@ import {
   McpConnector,
   McpOAuthBroker,
   messagingPlatformsFromEnv,
+  MultiBotMessagingSurface,
   PiAgentRuntime,
   PiOAuthLogins,
   PipedreamConnector,
@@ -259,14 +261,39 @@ export async function createApp(
   // see messagingPlatformsFromEnv's docstring for why a second poller
   // elsewhere (e.g. the worker) would actively break this.
   const messagingPlatforms = messagingPlatformsFromEnv(env, { pollInboundMessages: true });
-  const messaging =
-    messagingOverride ??
-    (isMessagingSurfaceEnabled(messagingPlatforms, {
-      deploymentModelKey: env.deploymentModelKey,
-      openSignup: env.messagingOpenSignup,
-    })
-      ? new ChatSdkMessagingSurface(messagingPlatforms)
-      : undefined);
+  const defaultSurface = new ChatSdkMessagingSurface(messagingPlatforms);
+  let messaging: MessagingSurface | undefined;
+  if (messagingOverride) {
+    messaging = messagingOverride;
+  } else if (isMessagingSurfaceEnabled(messagingPlatforms, {
+    deploymentModelKey: env.deploymentModelKey,
+    openSignup: env.messagingOpenSignup,
+  })) {
+    const botSurfaces = new Map<string, MessagingSurface>();
+    try {
+      const credentials = await prisma.botMessagingCredential.findMany({
+        where: { provider: "slack" },
+        include: { bot: true },
+      });
+      for (const cred of credentials) {
+        const cfg = cred.config as { botToken?: string; signingSecret?: string } | null;
+        if (cfg?.botToken && cfg.signingSecret) {
+          const platform = createSlackPlatformFromCredentials(cred.botId, {
+            botToken: cfg.botToken,
+            signingSecret: cfg.signingSecret,
+          });
+          botSurfaces.set(cred.botId, new ChatSdkMessagingSurface([platform]));
+        }
+      }
+    } catch {
+      // best-effort: fall back to default surface when the credential table
+      // is not yet migrated or the query fails for any reason.
+    }
+    messaging =
+      botSurfaces.size > 0
+        ? new MultiBotMessagingSurface(defaultSurface, botSurfaces)
+        : defaultSurface;
+  }
   const localEmailEmulator =
     !emailOverride && !env.smtpUrl && env.emailEmulator
       ? new EmailEmulator((message) => {
@@ -522,7 +549,15 @@ export async function createApp(
       prefix: "/rpc",
       context: { actor, signal: c.req.raw.signal },
     });
-    if (matched) return c.newResponse(response.body, response);
+    if (matched) {
+      const isEventStream = response.headers.get("content-type")?.startsWith("text/event-stream");
+      if (isEventStream) {
+        const headers = new Headers(response.headers);
+        headers.set("Cache-Control", "no-store");
+        return c.newResponse(response.body, { ...response, headers });
+      }
+      return c.newResponse(response.body, response);
+    }
     await next();
   });
   mountVoiceHttpRoutes(app, { prisma, secrets }, async (c) => {
@@ -764,8 +799,8 @@ export async function createApp(
       }
       await inbound(event);
     });
-    mountMessagingWebhookRoutes(app, { messaging });
-    // Start polling-mode adapters (e.g. Telegram with no public webhook URL
+  mountMessagingWebhookRoutes(app, { messaging });
+  // Start polling-mode adapters (e.g. Telegram with no public webhook URL
     // registered) immediately rather than waiting for the first webhook
     // POST or outbound send to lazily trigger it. This is the process that
     // owns the inbound sink registered just above, so it must be the one

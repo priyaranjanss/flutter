@@ -35,6 +35,7 @@ import {
   openAiToolParametersNeedNormalization,
 } from "./openai-tool-parameters.js";
 import { PiRuntimeCredentialStore, toOAuthCredential } from "./pi-credentials.js";
+import { registerKiloCatalog } from "./pi-kilo-provider.js";
 import { registerLocalProvider } from "./pi-local-provider.js";
 import {
   OPENAI_COMPATIBLE_PROVIDER_ID,
@@ -71,7 +72,9 @@ const toolCallBudgetsByRun = new Map<string, ToolCallBudget>();
 // would run before .env is loaded and miss the local provider entirely.
 let catalogModelsCache: Models | undefined;
 function catalogModels(): Models {
-  catalogModelsCache ??= registerOpenAiCompatibleCatalog(registerLocalProvider(builtinModels()));
+  catalogModelsCache ??= registerKiloCatalog(
+    registerOpenAiCompatibleCatalog(registerLocalProvider(builtinModels())),
+  );
   return catalogModelsCache;
 }
 const MAX_PARALLEL_SUBAGENTS = 4;
@@ -1627,12 +1630,73 @@ function looksLikeOpenCodeSessionError(message: string): boolean {
   );
 }
 
-function sanitizeProviderError(provider: string, message: string): string {
+export function formatUserFacingProviderError(provider: string, message: string): string {
   const sanitized = sanitizeError(message);
   if (isOpenCodeProvider(provider) && looksLikeOpenCodeSessionError(sanitized)) {
     return OPENCODE_SESSION_ERROR;
   }
+
+  const jsonMatch = sanitized.match(/^(?:(\d{3}):\s*)?(\{[\s\S]*\})$/);
+  if (jsonMatch && jsonMatch[2]) {
+    const statusCode = jsonMatch[1];
+    const jsonStr = jsonMatch[2];
+    try {
+      const parsed = JSON.parse(jsonStr);
+      const code = parsed.code || statusCode;
+      const subProvider = parsed.metadata?.provider_name;
+      let rawInnerMsg = "";
+      if (parsed.metadata?.raw) {
+        try {
+          const innerParsed =
+            typeof parsed.metadata.raw === "string"
+              ? JSON.parse(parsed.metadata.raw)
+              : parsed.metadata.raw;
+          rawInnerMsg = innerParsed.error || innerParsed.message || "";
+        } catch {
+          rawInnerMsg = String(parsed.metadata.raw).trim();
+        }
+      }
+      const mainMsg = parsed.message || rawInnerMsg || parsed.error || "";
+
+      if (Number(code) === 429 || /rate limit/i.test(mainMsg) || /rate limit/i.test(rawInnerMsg)) {
+        const subProviderText = subProvider ? ` on ${subProvider}` : "";
+        const providerName = provider === "kilo" ? "Kilo Free" : provider;
+        return `Rate limit exceeded${subProviderText} (${providerName}). The provider rate-limited requests. Please wait a moment or select another model.`;
+      }
+
+      if (Number(code) === 402 || /paid model|credits required/i.test(mainMsg)) {
+        return `Paid model credits required on Kilo Gateway. Please switch to a free model (e.g. Kilo Auto (Free)) or add credits to your account.`;
+      }
+
+      if (Number(code) === 404) {
+        return `The selected model endpoint was not found (404). Please verify the model selection.`;
+      }
+
+      const detailText = rawInnerMsg || mainMsg || parsed.remedy_hint || "";
+      if (detailText) {
+        const codePrefix = code ? `[${code}] ` : "";
+        const providerPrefix = subProvider ? `${subProvider}: ` : "";
+        return `${codePrefix}${providerPrefix}${detailText}`;
+      }
+    } catch {
+      // Fall through if JSON parsing fails
+    }
+  }
+
+  if (/rate limit/i.test(sanitized) || /\b429\b/.test(sanitized)) {
+    const providerName = provider === "kilo" ? "Kilo Free" : provider;
+    return `Rate limit exceeded on ${providerName}. Please wait a moment or select another model.`;
+  }
+
+  if (/paid model|credits required|\b402\b/i.test(sanitized)) {
+    return `Paid model credits required on Kilo Gateway. Please switch to a free model (e.g. Kilo Auto (Free)) or add credits to your account.`;
+  }
+
   return sanitized;
+}
+
+function sanitizeProviderError(provider: string, message: string): string {
+  return formatUserFacingProviderError(provider, message);
 }
 
 interface EventQueue {

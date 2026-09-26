@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyMessagingOutboundStatus,
   deliverMessagingOutbound,
+  formatGroupOutboundBody,
   MESSAGING_DM_OUTBOUND_CAP,
   MESSAGING_OUTBOUND_MAX_ATTEMPTS,
   type MessagingDeliveryDeps,
@@ -664,6 +665,11 @@ function createChannelDeps(
         if (where.botId === "bot-2" || where.id === "mi-2") return peerIdentity;
         return null;
       }),
+      findFirst: vi.fn(async ({ where }: { where: { botId?: string; id?: string } }) => {
+        if (where.botId === "bot-1" || where.id === "mi-1") return posterIdentity;
+        if (where.botId === "bot-2" || where.id === "mi-2") return peerIdentity;
+        return null;
+      }),
       update: vi.fn(async () => posterIdentity),
     },
     messagingChannel: {
@@ -953,5 +959,19 @@ describe("deliverMessagingOutbound retry enqueue failure", () => {
     expect(deps.rows).toEqual([
       expect.objectContaining({ kind: "dm", status: "sent", providerHandle: "handle-out-1" }),
     ]);
+  });
+});
+
+describe("formatGroupOutboundBody", () => {
+  it("strips LLM-generated speaker prefixes and applies single attribution", () => {
+    const raw = "Priyaranjan's agent: Pablo's agent: Hi! I am not aware of any specific plans.";
+    expect(formatGroupOutboundBody("Priyaranjan's agent", raw)).toBe(
+      "Priyaranjan's agent: Hi! I am not aware of any specific plans.",
+    );
+  });
+
+  it("handles clean text without redundant prefixes", () => {
+    const raw = "Hi! I am Pablo.";
+    expect(formatGroupOutboundBody("Alice's agent", raw)).toBe("Alice's agent: Hi! I am Pablo.");
   });
 });

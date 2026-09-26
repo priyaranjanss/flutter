@@ -10,11 +10,13 @@ export function messagingDmSurfaceNote(): string {
 }
 
 /** Hard privacy rules for bots posting into shared group channels. */
-export function messagingChannelPrivacyBlock(): string {
+export function messagingChannelPrivacyBlock(botName?: string): string {
+  const name = botName?.trim() || "this bot";
   return [
     "You are posting to a group chat with multiple people through the deployment's shared messaging line.",
+    `You ARE ${name}. Speak directly in the first person ("I", "my") as ${name}. Never speak about ${name} or yourself in the third person.`,
+    "Do not include any speaker prefixes, attribution labels, or '<Name>'s agent:' prefixes in your output text.",
     "Never reveal or share the owner's personal information, memory contents, scratchpad, or 1:1 conversation contents in the group.",
-    'Your posts are publicly attributed to the owner ("<name>\'s agent: …").',
     "Reply only when you add value to the group; otherwise finish silently without posting.",
   ].join("\n");
 }

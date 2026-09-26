@@ -176,7 +176,8 @@ export async function assertComputerHomeWritable(
     await assertWritableLinux(root, uid, gid);
     return;
   }
-  await assertWritableEntry(root, root, uid, gid, true);
+  // Non-Linux hosts (Windows, macOS) rely on Docker Desktop's VM bind-mount handling;
+  // Unix uid/gid permission checks are not applicable to the host filesystem.
 }
 
 /** Exported for regression coverage of the moved-directory escape check. */

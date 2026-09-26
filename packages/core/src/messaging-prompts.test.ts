@@ -16,13 +16,14 @@ describe("messagingDmSurfaceNote", () => {
 });
 
 describe("messagingChannelPrivacyBlock", () => {
-  it("forbids leaking owner data and allows silent finishes", () => {
-    const block = messagingChannelPrivacyBlock();
+  it("forbids leaking owner data and enforces 1st-person responses without prefixes", () => {
+    const block = messagingChannelPrivacyBlock("Pablo");
     expect(block).toMatch(/never (reveal|share)/i);
     expect(block).toMatch(/personal information/i);
     expect(block).toMatch(/memory/i);
     expect(block).toMatch(/1:1/);
-    expect(block).toMatch(/attributed/i);
+    expect(block).toMatch(/first person/i);
+    expect(block).toMatch(/Pablo/);
     expect(block).toMatch(/silent/i);
   });
 });

@@ -117,11 +117,11 @@ describe("peer message history", () => {
       blocksToAgentHistoryText([
         { kind: "bot_message_received", fromBotId: "b_1", fromBotName: "Researcher", text: "hi" },
       ]),
-    ).toBe("[from Researcher] hi");
+    ).toBe(`<peer from="Researcher">\nhi\n</peer>`);
     expect(
       blocksToAgentHistoryText([
         { kind: "bot_message_sent", toBotId: "b_2", toBotName: "Analyst", text: "chart it" },
       ]),
-    ).toBe("[to Analyst] chart it");
+    ).toBe("chart it");
   });
 });

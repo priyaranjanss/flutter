@@ -651,6 +651,7 @@ export async function sendThreadMessage(
             threadId: target.threadId,
             botId: target.botId,
             status: { in: [...ACTIVE_RUN_STATUSES] },
+            trigger: { not: "bot_message" },
           },
           select: { id: true, taskId: true, status: true },
         });
