@@ -344,7 +344,20 @@ describe("ChatSdkMessagingSurface outbound", () => {
       /Unknown messaging provider/,
     );
   });
-});
+})
+  it("converts markdown formatting for Slack outbound messages", async () => {
+    const { surface, adapter } = createSurface({ provider: "slack" });
+    const result = await surface.sendToThread(
+      { threadId: "slack:C1:9", body: "**Bold** and *italic* and \"code\"" },
+      context,
+    );
+
+    expect(result).toEqual({ handle: "msg-1" });
+    expect(adapter.postMessage).toHaveBeenCalledTimes(1);
+    expect((adapter.postMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toBe(
+      "slack:C1:9",
+    );
+  });
 
 describe("ChatSdkMessagingSurface typing", () => {
   it("forwards typing to platforms that support it", async () => {
