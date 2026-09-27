@@ -335,4 +335,80 @@ describe("enrichSlackTeamRoom", () => {
     );
     expect(enrichment.kind).toBe("mention");
   });
+
+  it("uses message ts as replyThreadId for app_mention outside a thread", () => {
+    const enrichment = enrichSlackTeamRoom(
+      {
+        team_id: "T1",
+        authorizations: [{ user_id: "U_BOT", is_bot: true }],
+        event: {
+          type: "app_mention",
+          channel: "C1",
+          text: "<@U_BOT> help",
+          ts: "1234.5",
+          user: "U_OTHER",
+        },
+      },
+      base,
+    );
+    expect(enrichment.kind).toBe("mention");
+    expect(enrichment.replyThreadId).toBe("1234.5");
+  });
+
+  it("uses message ts as replyThreadId for bot mention outside a thread", () => {
+    const enrichment = enrichSlackTeamRoom(
+      {
+        team_id: "T1",
+        authorizations: [{ user_id: "U_BOT", is_bot: true }],
+        event: {
+          type: "message",
+          channel: "C1",
+          text: "hey <@U_BOT> help",
+          ts: "999.1",
+          user: "U_OTHER",
+        },
+      },
+      base,
+    );
+    expect(enrichment.kind).toBe("mention");
+    expect(enrichment.replyThreadId).toBe("999.1");
+  });
+
+  it("keeps replyThreadId null for ambient messages outside a thread", () => {
+    const enrichment = enrichSlackTeamRoom(
+      {
+        team_id: "T1",
+        authorizations: [{ user_id: "U_BOT", is_bot: true }],
+        event: {
+          type: "message",
+          channel: "C1",
+          text: "ambient chat",
+          ts: "111.1",
+          user: "U_OTHER",
+        },
+      },
+      base,
+    );
+    expect(enrichment.kind).toBe("ambient");
+    expect(enrichment.replyThreadId).toBeNull();
+  });
+
+  it("prefers thread_ts over ts when both are present", () => {
+    const enrichment = enrichSlackTeamRoom(
+      {
+        team_id: "T1",
+        authorizations: [{ user_id: "U_BOT", is_bot: true }],
+        event: {
+          type: "app_mention",
+          channel: "C1",
+          text: "<@U_BOT> help",
+          ts: "1234.5",
+          thread_ts: "100.1",
+          user: "U_OTHER",
+        },
+      },
+      base,
+    );
+    expect(enrichment.replyThreadId).toBe("100.1");
+  });
 });
