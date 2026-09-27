@@ -252,8 +252,6 @@ export function enrichSlackTeamRoom(
   else if (typeof event.bot_id === "string" || event.subtype === "bot_message") {
     enrichment.senderIsBot = true;
   }
-  if (threadTs) enrichment.replyThreadId = threadTs;
-  else enrichment.replyThreadId = null;
   if (!base.isDirect) {
     const text = stringField(event, "text") ?? base.content;
     const botUserId = slackAuthorizedBotUserId(root);
@@ -261,6 +259,12 @@ export function enrichSlackTeamRoom(
     // someone else must stay ambient so listen policy still applies.
     enrichment.kind =
       eventType === "app_mention" || mentionsSlackBot(text, botUserId) ? "mention" : "ambient";
+    if (threadTs) enrichment.replyThreadId = threadTs;
+    else if (enrichment.kind === "mention") enrichment.replyThreadId = stringField(event, "ts");
+    else enrichment.replyThreadId = null;
+  } else {
+    if (threadTs) enrichment.replyThreadId = threadTs;
+    else enrichment.replyThreadId = null;
   }
   return enrichment;
 }
