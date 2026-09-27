@@ -1776,6 +1776,8 @@ export function ShellPage() {
   loadOlderMessagesRef.current = loadOlderMessages;
   const jumpToMessageRef = useRef(jumpToMessage);
   jumpToMessageRef.current = jumpToMessage;
+  const refreshComputerScreenRef = useRef(refreshComputerScreen);
+  refreshComputerScreenRef.current = refreshComputerScreen;
 
   const mentionBotsKey = useMemo(
     () => bots.map((bot) => `${bot.id}:${bot.name}`).join(","),
@@ -2493,6 +2495,17 @@ export function ShellPage() {
       void rpc.computer.heartbeat({ botId: heartbeatBotId }).catch(() => undefined);
     ping();
     const timer = window.setInterval(ping, 60_000);
+    return () => window.clearInterval(timer);
+  }, [panel, computerOpen, computerBot?.id, active?.id, computer?.state]);
+
+  useEffect(() => {
+    const screenRefreshBotId = computerBot?.id ?? active?.id;
+    if ((panel !== "computer" && !computerOpen) || !screenRefreshBotId || computer?.state !== "running")
+      return;
+    const refresh = () =>
+      void refreshComputerScreenRef.current(screenRefreshBotId).catch(() => undefined);
+    refresh();
+    const timer = window.setInterval(refresh, 2_000);
     return () => window.clearInterval(timer);
   }, [panel, computerOpen, computerBot?.id, active?.id, computer?.state]);
 
