@@ -79,10 +79,30 @@ export function messagingEnvFromProcess(
  * bot identity for outbound calls, never polls, and no webhook route is
  * mounted there for it to receive on anyway).
  */
-export function messagingPlatformsFromEnv(
+async function resolveSlackBotUserId(botToken: string): Promise<string | undefined> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch("https://slack.com/api/auth.test", {
+        headers: { Authorization: `Bearer ${botToken}` },
+        signal: controller.signal,
+      });
+      const data = (await response.json()) as { ok: boolean; user_id?: string };
+      if (data.ok && data.user_id) return data.user_id;
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch {
+    // ignore network errors, timeouts, and invalid tokens
+  }
+  return undefined;
+}
+
+export async function messagingPlatformsFromEnv(
   env: MessagingEnvironmentValues,
   options: { pollInboundMessages?: boolean } = {},
-): MessagingPlatform[] {
+): Promise<MessagingPlatform[]> {
   const platforms: MessagingPlatform[] = [];
 
   if (
@@ -119,14 +139,19 @@ export function messagingPlatformsFromEnv(
   }
 
   if (env.slackBotToken && env.slackSigningSecret) {
+    const botUserId =
+      isVitestRuntime() || !env.slackBotToken
+        ? undefined
+        : await resolveSlackBotUserId(env.slackBotToken);
     platforms.push({
       provider: "slack",
       capabilities: { direct: true, groups: true, typing: false },
       adapter: createSlackAdapter({
         botToken: env.slackBotToken,
         signingSecret: env.slackSigningSecret,
+        botUserId,
       }),
-      enrichTeamRoom: enrichSlackTeamRoom,
+      enrichTeamRoom: (raw, base) => enrichSlackTeamRoom(raw, base, botUserId),
     });
   }
 
@@ -234,6 +259,7 @@ export function parseSendblueStatus(payload: unknown): MessagingOutboundStatus |
 export function enrichSlackTeamRoom(
   raw: unknown,
   base: MessagingInboundMessage,
+  botUserId?: string,
 ): Partial<MessagingInboundMessage> {
   const root = asRecord(raw);
   if (!root) return {};
@@ -254,11 +280,14 @@ export function enrichSlackTeamRoom(
   }
   if (!base.isDirect) {
     const text = stringField(event, "text") ?? base.content;
-    const botUserId = slackAuthorizedBotUserId(root);
+    const resolvedBotUserId =
+      botUserId ?? slackAuthorizedBotUserId(root);
     // app_mention is Slack's bot-directed event. A bare <@U…> mention of
     // someone else must stay ambient so listen policy still applies.
     enrichment.kind =
-      eventType === "app_mention" || mentionsSlackBot(text, botUserId) ? "mention" : "ambient";
+      eventType === "app_mention" || mentionsSlackBot(text, resolvedBotUserId)
+        ? "mention"
+        : "ambient";
     if (threadTs) enrichment.replyThreadId = threadTs;
     else if (enrichment.kind === "mention") enrichment.replyThreadId = stringField(event, "ts");
     else enrichment.replyThreadId = null;
@@ -317,17 +346,22 @@ function sendblueTransport(raw: unknown): string | null {
   return service === "iMessage" || service === "SMS" || service === "RCS" ? service : null;
 }
 
-export function createSlackPlatformFromCredentials(
+export async function createSlackPlatformFromCredentials(
   botId: string,
   credentials: { botToken: string; signingSecret: string },
-): MessagingPlatform {
+): Promise<MessagingPlatform> {
+  const botUserId =
+    isVitestRuntime() || !credentials.botToken
+      ? undefined
+      : await resolveSlackBotUserId(credentials.botToken);
   return {
     provider: "slack",
     capabilities: { direct: true, groups: true, typing: false },
     adapter: createSlackAdapter({
       botToken: credentials.botToken,
       signingSecret: credentials.signingSecret,
+      botUserId,
     }),
-    enrichTeamRoom: enrichSlackTeamRoom,
+    enrichTeamRoom: (raw, base) => enrichSlackTeamRoom(raw, base, botUserId),
   };
 }

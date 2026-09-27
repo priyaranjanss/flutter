@@ -29,28 +29,29 @@ const fullEnv: MessagingEnvironmentValues = {
   larkVerificationToken: "lark-verify",
 };
 
-function providers(env: MessagingEnvironmentValues): string[] {
-  return messagingPlatformsFromEnv(env).map((platform) => platform.provider);
+async function providers(env: MessagingEnvironmentValues): Promise<string[]> {
+  const platforms = await messagingPlatformsFromEnv(env);
+  return platforms.map((platform) => platform.provider);
 }
 
 describe("messagingPlatformsFromEnv", () => {
-  it("mounts nothing without credentials and everything with full credentials", () => {
-    expect(providers({})).toEqual([]);
-    expect(providers(fullEnv)).toEqual(["sendblue", "slack", "whatsapp", "telegram", "lark"]);
+  it("mounts nothing without credentials and everything with full credentials", async () => {
+    expect(await providers({})).toEqual([]);
+    expect(await providers(fullEnv)).toEqual(["sendblue", "slack", "whatsapp", "telegram", "lark"]);
   });
 
-  it("requires all four sendblue values", () => {
+  it("requires all four sendblue values", async () => {
     for (const key of [
       "sendblueApiKeyId",
       "sendblueApiSecret",
       "sendblueSigningSecret",
       "sendbluePhoneNumber",
     ] as const) {
-      expect(providers({ ...fullEnv, [key]: undefined })).not.toContain("sendblue");
+      expect(await providers({ ...fullEnv, [key]: undefined })).not.toContain("sendblue");
     }
   });
 
-  it("requires each platform's full credential set", () => {
+  it("requires each platform's full credential set", async () => {
     expect(providers({ ...fullEnv, slackSigningSecret: undefined })).not.toContain("slack");
     expect(providers({ ...fullEnv, slackBotToken: undefined })).not.toContain("slack");
     for (const key of [
@@ -59,24 +60,24 @@ describe("messagingPlatformsFromEnv", () => {
       "whatsappAppSecret",
       "whatsappVerifyToken",
     ] as const) {
-      expect(providers({ ...fullEnv, [key]: undefined })).not.toContain("whatsapp");
+      expect(await providers({ ...fullEnv, [key]: undefined })).not.toContain("whatsapp");
     }
-    expect(providers({ ...fullEnv, telegramBotToken: undefined })).not.toContain("telegram");
+    expect(await providers({ ...fullEnv, telegramBotToken: undefined })).not.toContain("telegram");
     // Without the secret token the adapter would accept unsigned webhook
     // posts, so the secret is a mount gate, not optional hardening.
-    expect(providers({ ...fullEnv, telegramWebhookSecret: undefined })).not.toContain("telegram");
-    expect(providers({ telegramBotToken: "tg-token" })).toEqual([]);
+    expect(await providers({ ...fullEnv, telegramWebhookSecret: undefined })).not.toContain("telegram");
+    expect(await providers({ telegramBotToken: "tg-token" })).toEqual([]);
     expect(
-      providers({ telegramBotToken: "tg-token", telegramWebhookSecret: "tg-webhook-secret" }),
+      await providers({ telegramBotToken: "tg-token", telegramWebhookSecret: "tg-webhook-secret" }),
     ).toEqual(["telegram"]);
-    expect(providers({ ...fullEnv, larkAppId: undefined })).not.toContain("lark");
-    expect(providers({ ...fullEnv, larkAppSecret: undefined })).not.toContain("lark");
+    expect(await providers({ ...fullEnv, larkAppId: undefined })).not.toContain("lark");
+    expect(await providers({ ...fullEnv, larkAppSecret: undefined })).not.toContain("lark");
     // Without the verification token the adapter would accept unsigned
     // webhook posts, so the token is a mount gate, not optional hardening.
-    expect(providers({ ...fullEnv, larkVerificationToken: undefined })).not.toContain("lark");
-    expect(providers({ larkAppId: "cli-fake", larkAppSecret: "lark-secret" })).toEqual([]);
+    expect(await providers({ ...fullEnv, larkVerificationToken: undefined })).not.toContain("lark");
+    expect(await providers({ larkAppId: "cli-fake", larkAppSecret: "lark-secret" })).toEqual([]);
     expect(
-      providers({
+      await providers({
         larkAppId: "cli-fake",
         larkAppSecret: "lark-secret",
         larkVerificationToken: "lark-verify",
@@ -84,21 +85,21 @@ describe("messagingPlatformsFromEnv", () => {
     ).toEqual(["lark"]);
   });
 
-  it("forces Telegram into webhook mode so worker initialize cannot long-poll", () => {
-    const telegram = messagingPlatformsFromEnv({
+  it("forces Telegram into webhook mode so worker initialize cannot long-poll", async () => {
+    const telegram = (await messagingPlatformsFromEnv({
       telegramBotToken: "tg-token",
       telegramWebhookSecret: "tg-webhook-secret",
-    })[0]!;
+    }))[0]!;
     // mode is protected on the adapter class but readable at runtime.
     expect((telegram.adapter as unknown as { mode: string }).mode).toBe("webhook");
   });
 
-  it("forces Lark into webhook inbound so worker initialize cannot open a long connection", () => {
-    const lark = messagingPlatformsFromEnv({
+  it("forces Lark into webhook inbound so worker initialize cannot open a long connection", async () => {
+    const lark = (await messagingPlatformsFromEnv({
       larkAppId: "cli-fake",
       larkAppSecret: "lark-secret",
       larkVerificationToken: "lark-verify",
-    })[0]!;
+    }))[0]!;
     const incoming = lark.adapter as unknown as {
       incomingConfig: { events: string; callbacks: string };
       shouldStartWsClient: () => boolean;
@@ -107,7 +108,7 @@ describe("messagingPlatformsFromEnv", () => {
     expect(incoming.shouldStartWsClient()).toBe(false);
   });
 
-  it("maps LARK_* process env and accepts the international domain switch", () => {
+  it("maps LARK_* process env and accepts the international domain switch", async () => {
     expect(
       messagingEnvFromProcess({
         LARK_APP_ID: " cli-fake ",
@@ -123,27 +124,27 @@ describe("messagingPlatformsFromEnv", () => {
       larkEncryptKey: "lark-encrypt",
       larkDomain: "Lark",
     });
-    const international = messagingPlatformsFromEnv({
+    const international = (await messagingPlatformsFromEnv({
       larkAppId: "cli-fake",
       larkAppSecret: "lark-secret",
       larkVerificationToken: "lark-verify",
       larkDomain: "Lark",
-    })[0]!;
+    }))[0]!;
     expect((international.adapter as unknown as { config: { domain: Domain } }).config.domain).toBe(
       Domain.Lark,
     );
   });
 
-  it.each(["", "unknown", "feishu"])("uses normalized Lark defaults for domain %s", (domain) => {
+  it.each(["", "unknown", "feishu"])("uses normalized Lark defaults for domain %s", async (domain) => {
     vi.stubEnv("LARK_DOMAIN", domain);
     vi.stubEnv("LARK_ENCRYPT_KEY", "   ");
     try {
-      const lark = messagingPlatformsFromEnv({
+      const lark = (await messagingPlatformsFromEnv({
         ...messagingEnvFromProcess(process.env),
         larkAppId: "cli-fake",
         larkAppSecret: "lark-secret",
         larkVerificationToken: "lark-verify",
-      }).find((platform) => platform.provider === "lark")!;
+      })).find((platform) => platform.provider === "lark")!;
       const config = (
         lark.adapter as unknown as {
           config: { domain: Domain; encryptKey: string };
@@ -156,8 +157,8 @@ describe("messagingPlatformsFromEnv", () => {
     }
   });
 
-  it("declares group and typing support only for sendblue", () => {
-    const platforms = messagingPlatformsFromEnv(fullEnv);
+  it("declares group and typing support only for sendblue", async () => {
+    const platforms = await messagingPlatformsFromEnv(fullEnv);
     const capabilities = Object.fromEntries(
       platforms.map((platform) => [platform.provider, platform.capabilities]),
     );
@@ -169,8 +170,8 @@ describe("messagingPlatformsFromEnv", () => {
   });
 });
 
-describe("sendblue platform hooks", () => {
-  const sendblue = messagingPlatformsFromEnv(fullEnv)[0]!;
+describe("sendblue platform hooks", async () => {
+  const sendblue = (await messagingPlatformsFromEnv(fullEnv))[0]!;
 
   it("filters the deployment line and non-string entries out of the roster", () => {
     expect(
@@ -236,29 +237,29 @@ describe("parseSendblueStatus", () => {
 });
 
 describe("isMessagingEnabled", () => {
-  it("requires at least one platform", () => {
+  it("requires at least one platform", async () => {
     vi.stubEnv("VITEST", "");
-    expect(isMessagingEnabled(messagingPlatformsFromEnv(fullEnv))).toBe(true);
+    expect(isMessagingEnabled(await messagingPlatformsFromEnv(fullEnv))).toBe(true);
     expect(isMessagingEnabled([])).toBe(false);
     vi.unstubAllEnvs();
   });
 
-  it("is disabled under vitest even with platforms configured", () => {
+  it("is disabled under vitest even with platforms configured", async () => {
     expect(process.env.VITEST).toBeTruthy();
-    expect(isMessagingEnabled(messagingPlatformsFromEnv(fullEnv))).toBe(false);
+    expect(isMessagingEnabled(await messagingPlatformsFromEnv(fullEnv))).toBe(false);
   });
 
-  it.each(["0", "false"])("does not treat VITEST=%s as an active test runner", (value) => {
+  it.each(["0", "false"])("does not treat VITEST=%s as an active test runner", async (value) => {
     vi.stubEnv("VITEST", value);
-    expect(isMessagingEnabled(messagingPlatformsFromEnv(fullEnv))).toBe(true);
+    expect(isMessagingEnabled(await messagingPlatformsFromEnv(fullEnv))).toBe(true);
     vi.unstubAllEnvs();
   });
 });
 
 describe("isMessagingSurfaceEnabled", () => {
-  it("requires the deployment model key only for open signup", () => {
+  it("requires the deployment model key only for open signup", async () => {
     vi.stubEnv("VITEST", "");
-    const platforms = messagingPlatformsFromEnv(fullEnv);
+    const platforms = await messagingPlatformsFromEnv(fullEnv);
     const key = (deploymentModelKey: string | undefined, openSignup: boolean) => ({
       deploymentModelKey,
       openSignup,

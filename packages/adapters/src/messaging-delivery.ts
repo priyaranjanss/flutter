@@ -118,11 +118,18 @@ async function mirrorRun(deps: MessagingDeliveryDeps, runId: string): Promise<vo
   await deps.prisma.messagingOutbound.createMany({ data: rows, skipDuplicates: true });
 }
 
-export function formatGroupOutboundBody(fromLabel: string, rawText: string): string {
+export function formatGroupOutboundBody(
+  fromLabel: string,
+  rawText: string,
+  options?: { provider?: string; fromAddress?: string },
+): string {
   let cleaned = rawText.trim();
   const PREFIX_RE = /^(?:[a-zA-Z0-9_\s'-]+(?:'s agent|'s bot|'s assistant| agent| bot| assistant)?:\s*)+/i;
   cleaned = cleaned.replace(PREFIX_RE, "").trim();
   if (!cleaned) return "";
+  if (options?.provider === "slack" && options.fromAddress) {
+    return `<@${options.fromAddress}> ${cleaned}`;
+  }
   return `${fromLabel}: ${cleaned}`;
 }
 
@@ -180,7 +187,10 @@ async function mirrorChannelRun(
       kind: "group",
       identityId: identity.id,
       threadId: resolveMessagingThreadId(channel.threadId, channelBlock.replyThreadId ?? null),
-      body: formatGroupOutboundBody(fromLabel, text),
+      body: formatGroupOutboundBody(fromLabel, text, {
+        provider: channelBlock.provider,
+        fromAddress: channelBlock.fromAddress,
+      }),
       sourceMessageId: message.id,
     })),
     skipDuplicates: true,

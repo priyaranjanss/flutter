@@ -40,8 +40,8 @@ const context: AdapterContext = {
 const token = "test-verification-token";
 const encryptKey = "test-encryption-key";
 
-function createSurface(encrypted = false) {
-  const platforms = messagingPlatformsFromEnv({
+async function createSurface(encrypted = false) {
+  const platforms = await messagingPlatformsFromEnv({
     larkAppId: "cli-test",
     larkAppSecret: "test-app-secret",
     larkVerificationToken: token,
@@ -127,7 +127,7 @@ beforeEach(() => {
 
 describe("Lark messaging conformance", () => {
   it.each([undefined, "wrong-token"])("rejects a webhook with token %s", async (invalidToken) => {
-    const { surface, events } = createSurface();
+    const { surface, events } = await createSurface();
     const payload = message();
     const response = await surface.handleWebhook(
       "lark",
@@ -140,7 +140,7 @@ describe("Lark messaging conformance", () => {
   it.each([false, true])(
     "answers authenticated URL verification (encrypted: %s)",
     async (encrypted) => {
-      const { surface, events } = createSurface(encrypted);
+      const { surface, events } = await createSurface(encrypted);
       const payload = { type: "url_verification", token, challenge: "test-challenge" };
       const response = await surface.handleWebhook(
         "lark",
@@ -155,7 +155,7 @@ describe("Lark messaging conformance", () => {
   it.each([false, true])(
     "delivers direct messages and sends replies (encrypted: %s)",
     async (encrypted) => {
-      const { surface, events } = createSurface(encrypted);
+      const { surface, events } = await createSurface(encrypted);
       const response = await surface.handleWebhook(
         "lark",
         encrypted ? encryptedWebhook(message()) : webhook(message()),
@@ -184,7 +184,7 @@ describe("Lark messaging conformance", () => {
   );
 
   it("rejects an invalid encrypted signature", async () => {
-    const { surface, events } = createSurface(true);
+    const { surface, events } = await createSurface(true);
     expect((await surface.handleWebhook("lark", encryptedWebhook(message(), false)))?.status).toBe(
       403,
     );
@@ -195,7 +195,7 @@ describe("Lark messaging conformance", () => {
     ["group", "ou-test"],
     ["p2p", "ou-bot"],
   ])("ignores %s messages from %s", async (chatType, sender) => {
-    const { surface, events } = createSurface();
+    const { surface, events } = await createSurface();
     expect((await surface.handleWebhook("lark", webhook(message(chatType, sender))))?.status).toBe(
       200,
     );
@@ -203,7 +203,7 @@ describe("Lark messaging conformance", () => {
   });
 
   it("returns a retryable failure when inbound persistence fails", async () => {
-    const { surface } = createSurface();
+    const { surface } = await createSurface();
     surface.onInbound(async () => {
       throw new Error("Persistence unavailable");
     });

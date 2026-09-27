@@ -260,7 +260,7 @@ export async function createApp(
   // so it's the one that must hold Telegram's live getUpdates connection —
   // see messagingPlatformsFromEnv's docstring for why a second poller
   // elsewhere (e.g. the worker) would actively break this.
-  const messagingPlatforms = messagingPlatformsFromEnv(env, { pollInboundMessages: true });
+  const messagingPlatforms = await messagingPlatformsFromEnv(env, { pollInboundMessages: true });
   const defaultSurface = new ChatSdkMessagingSurface(messagingPlatforms);
   let messaging: MessagingSurface | undefined;
   if (messagingOverride) {
@@ -278,7 +278,7 @@ export async function createApp(
       for (const cred of credentials) {
         const cfg = cred.config as { botToken?: string; signingSecret?: string } | null;
         if (cfg?.botToken && cfg.signingSecret) {
-          const platform = createSlackPlatformFromCredentials(cred.botId, {
+          const platform = await createSlackPlatformFromCredentials(cred.botId, {
             botToken: cfg.botToken,
             signingSecret: cfg.signingSecret,
           });

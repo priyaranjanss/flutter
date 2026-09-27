@@ -974,4 +974,18 @@ describe("formatGroupOutboundBody", () => {
     const raw = "Hi! I am Pablo.";
     expect(formatGroupOutboundBody("Alice's agent", raw)).toBe("Alice's agent: Hi! I am Pablo.");
   });
+
+  it("mentions the original sender for Slack instead of prefixing the bot name", () => {
+    const raw = "Found the answer.";
+    expect(formatGroupOutboundBody("Assistant", raw, { provider: "slack", fromAddress: "U12345" })).toBe(
+      "<@U12345> Found the answer.",
+    );
+  });
+
+  it("falls back to bot-name attribution for Slack when sender address is missing", () => {
+    const raw = "Found the answer.";
+    expect(formatGroupOutboundBody("Assistant", raw, { provider: "slack" })).toBe(
+      "Assistant: Found the answer.",
+    );
+  });
 });
