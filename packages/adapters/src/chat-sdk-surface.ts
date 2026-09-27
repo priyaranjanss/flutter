@@ -24,6 +24,36 @@ const webhookDrain = new AsyncLocalStorage<{
 /** Inbound webhook bodies larger than this are rejected before parsing. */
 export const MESSAGING_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
 
+/** Convert CommonMark-style markdown to Slack mrkdwn so formatting renders
+ *  correctly instead of leaking raw marker characters. */
+function markdownToSlackMrkdwn(text: string): string {
+  // Headings -> bold
+  text = text.replace(/^#{1,6}\s+(.+)$/gm, "*$1*");
+
+  // Protect bold spans from the italic pass below.
+  const boldSpans: string[] = [];
+  text = text.replace(/\*\*(.+?)\*\*/g, (_, content) => {
+    boldSpans.push(content);
+    return `\x00BOLD${boldSpans.length - 1}\x00`;
+  });
+
+  // Italic *text* -> _text_
+  text = text.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, "_$1_");
+
+  // Restore bold spans as Slack bold *text*
+  text = text.replace(/\x00BOLD(\d+)\x00/g, (_, index) => {
+    return `*${boldSpans[Number(index)]}*`;
+  });
+
+  // Strikethrough ~~text~~ -> ~text~
+  text = text.replace(/~~(.+?)~~/g, "~$1~");
+
+  // Unordered list markers -> Slack bullets
+  text = text.replace(/^[\*\-+]\s+/gm, "• ");
+
+  return text;
+}
+
 /**
  * One messaging platform mounted on the surface. The Chat SDK adapter owns
  * webhook verification, payload translation, and platform API calls; the
@@ -135,7 +165,10 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     _context: AdapterContext,
   ): Promise<MessagingSendResult> {
     await this.ensureInitialized();
-    const sent = await this.chat.thread(request.threadId).post(request.body);
+    const provider = providerOfThreadId(request.threadId);
+    const body =
+      provider === "slack" ? markdownToSlackMrkdwn(request.body) : request.body;
+    const sent = await this.chat.thread(request.threadId).post(body);
     const handle = "id" in sent && typeof sent.id === "string" ? sent.id : "";
     return { handle };
   }
