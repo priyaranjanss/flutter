@@ -955,6 +955,23 @@ export function ShellPage() {
     });
   }
 
+  async function cacheComputerScreen(id: string) {
+    const request = ++screenRequest.current;
+    return loadComputerScreen({
+      load: () => rpc.computer.screenUrl({ botId: id }),
+      isCurrent: () => request === screenRequest.current && activeBotId.current === id,
+      commit: (screen) => {
+        cacheComputerFor(id, { screenUrl: screen.url });
+        if (computerVisible.current) {
+          setScreenUrl(screen.url);
+          setComputerError(screen.error);
+          setComputerErrorFromScreen(Boolean(screen.error));
+        }
+      },
+      fallbackError: t`Could not connect to the computer screen`,
+    });
+  }
+
   async function loadOlderMessages() {
     const targetBotId = inGroup ? undefined : active?.id;
     const targetGroupId = inGroup ? groupId : undefined;
@@ -1259,7 +1276,7 @@ export function ShellPage() {
           // waiting_input: reconcile ask cards if a stale post-send refresh raced SSE.
           void refreshThread(active.id).catch(() => undefined);
         } else if (isComputerStatusEvent(event)) {
-          void refreshComputerScreen(active.id).catch(() => undefined);
+          void cacheComputerScreen(active.id).catch(() => undefined);
         }
       },
     });
