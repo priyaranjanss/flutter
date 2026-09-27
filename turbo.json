@@ -1,6 +1,11 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalPassThroughEnv": ["COREPACK_ENABLE_DOWNLOAD_PROMPT"],
+  "globalPassThroughEnv": [
+    "API_HOST",
+    "API_PORT",
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT",
+    "DEV_API_READY_TIMEOUT_MS"
+  ],
   "tasks": {
     "generate": {
       "cache": false

@@ -15,6 +15,9 @@ RUN cc -O3 -fPIC -shared -Wall -Wextra -Werror -o librakazo-xcapture.so xcapture
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    gh \
+    curl \
     xvfb \
     x11vnc \
     fluxbox \
