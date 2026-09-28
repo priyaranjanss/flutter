@@ -1068,6 +1068,7 @@ describe("team chat bridge", () => {
             spaceId: string;
             botId: string;
             userId: string;
+            provider: string;
             thread: { id: string };
           };
         }): Promise<void>;
@@ -1083,6 +1084,7 @@ describe("team chat bridge", () => {
         spaceId: "space-1",
         botId: "bot-1",
         userId: "owner-1",
+        provider: "sendblue",
         thread: { id: "thread-1" },
       },
     });
@@ -1131,6 +1133,7 @@ describe("team chat bridge", () => {
             spaceId: string;
             botId: string;
             userId: string;
+            provider: string;
             thread: { id: string };
           };
         }): Promise<void>;
@@ -1146,6 +1149,7 @@ describe("team chat bridge", () => {
         spaceId: "space-1",
         botId: "bot-1",
         userId: "owner-1",
+        provider: "sendblue",
         thread: { id: "thread-1" },
       },
     });
@@ -1230,6 +1234,7 @@ describe("team chat bridge", () => {
             spaceId: string;
             botId: string;
             userId: string;
+            provider: string;
             thread: { id: string };
           };
         }): Promise<void>;
@@ -1246,6 +1251,7 @@ describe("team chat bridge", () => {
         spaceId: "space-1",
         botId: "bot-1",
         userId: "owner-1",
+        provider: "sendblue",
         thread: { id: "thread-1" },
       },
     });
@@ -1313,6 +1319,7 @@ describe("team chat bridge", () => {
             spaceId: string;
             botId: string;
             userId: string;
+            provider: string;
             thread: { id: string };
           };
         }): Promise<void>;
@@ -1329,6 +1336,7 @@ describe("team chat bridge", () => {
         spaceId: "space-1",
         botId: "bot-1",
         userId: "owner-1",
+        provider: "sendblue",
         thread: { id: "thread-1" },
       },
     });
@@ -1423,6 +1431,7 @@ describe("team chat bridge", () => {
             spaceId: string;
             botId: string;
             userId: string;
+            provider: string;
             thread: { id: string };
           };
         }): Promise<void>;
@@ -1440,6 +1449,7 @@ describe("team chat bridge", () => {
         spaceId: "space-1",
         botId: "bot-1",
         userId: "owner-1",
+        provider: "sendblue",
         thread: { id: "thread-1" },
       },
     });
@@ -1483,6 +1493,7 @@ describe("team chat bridge", () => {
             spaceId: string;
             botId: string;
             userId: string;
+            provider: string;
             thread: { id: string };
           };
         }): Promise<void>;
@@ -1498,6 +1509,7 @@ describe("team chat bridge", () => {
         spaceId: "space-1",
         botId: "bot-1",
         userId: "owner-1",
+        provider: "sendblue",
         thread: { id: "thread-1" },
       },
     });
@@ -1526,7 +1538,7 @@ describe("team chat bridge", () => {
 
     const conversation = {
       id: "conversation-1",
-      provider: "slack",
+      provider: "sendblue",
       workspaceId: "T-1",
       externalKey: "channel:C-1:100.1",
       conversationId: "C-1",
@@ -1684,7 +1696,7 @@ describe("team chat bridge", () => {
       events: { sendUserMessage },
       jobs: { enqueue },
       send,
-      providerId: "slack",
+      providerId: "sendblue",
       botId: "bot-1",
       reconcileIntervalMs: 60_000,
     });
@@ -1729,12 +1741,12 @@ describe("team chat bridge", () => {
         blocks: [
           expect.objectContaining({
             kind: "channel_message",
-            provider: "slack",
+            provider: "sendblue",
             text: "Review the launch plan",
           }),
         ],
         createRun: false,
-        clientNonce: "teamchat-transcript:slack:Ev-1",
+        clientNonce: "teamchat-transcript:sendblue:Ev-1",
       }),
     );
     expect(sendUserMessage).toHaveBeenCalledWith(
@@ -1743,9 +1755,9 @@ describe("team chat bridge", () => {
         threadId: "thread-1",
         botId: "bot-1",
         userId: "owner-1",
-        prompt: "Slack message from Ada:\n\nReview the launch plan",
+        prompt: "Sendblue message from Ada:\n\nReview the launch plan",
         trigger: "messaging",
-        clientNonce: "teamchat:slack:Ev-1",
+        clientNonce: "teamchat:sendblue:Ev-1",
       }),
     );
     expect(enqueue).toHaveBeenCalledTimes(1);
@@ -1825,20 +1837,8 @@ describe("team chat bridge", () => {
     await bridge.start();
     await bridge.stop();
 
-    expect(sendUserMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        threadId: "thread-legacy",
-        blocks: [
-          expect.objectContaining({
-            kind: "channel_message",
-            provider: "slack",
-            text: "This ordinary message was already observed.",
-          }),
-        ],
-        createRun: false,
-      }),
-    );
-    expect(record.threadMessageId).toBe("message-visible");
+    expect(sendUserMessage).not.toHaveBeenCalled();
+    expect(record.threadMessageId).toBeNull();
   });
   it("does not reopen deliveries finalized as unconfirmed", async () => {
     const update = vi.fn();

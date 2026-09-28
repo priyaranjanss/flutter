@@ -23,7 +23,10 @@ export function toTeamChatInbound(event: MessagingInboundMessage): TeamChatInbou
     eventId: event.handle,
     workspaceId: event.workspaceId ?? event.provider,
     kind,
-    conversationKey: event.conversationKey ?? event.threadId,
+    conversationKey:
+      event.provider === "slack"
+        ? (event.threadId ?? event.conversationKey)
+        : (event.conversationKey ?? event.threadId),
     conversationId: event.threadId,
     conversationName: event.channelName ?? undefined,
     participantNames: event.participantNames?.length

@@ -54,7 +54,7 @@ describe("toTeamChatInbound", () => {
       eventId: "Ev1",
       workspaceId: "T1",
       kind: "mention",
-      conversationKey: "channel:C1",
+      conversationKey: "slack:C1",
       conversationId: "slack:C1",
       replyThreadId: "100.1",
       senderIsBot: true,

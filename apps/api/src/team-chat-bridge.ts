@@ -483,6 +483,7 @@ export class TeamChatBridge {
       thread: { id: string } | null;
     },
   ): Promise<void> {
+    if (message.provider === "slack") return;
     if (message.threadMessageId) return;
     if (!conversation.thread) throw new Error("Team chat conversation has no Rakazo thread");
     const block: MessageBlock = {
@@ -968,11 +969,19 @@ export class TeamChatBridge {
       spaceId: string;
       botId: string;
       userId: string;
+      provider: string;
       thread: { id: string } | null;
     };
   }): Promise<void> {
     const thread = message.externalConversation.thread;
     if (!thread) throw new Error("Team chat conversation has no Rakazo thread");
+    if (message.externalConversation.provider === "slack") {
+      await this.deps.prisma.externalMessage.updateMany({
+        where: { id: message.id },
+        data: { status: "ignored", nextAttemptAt: null },
+      });
+      return;
+    }
     // In-flight routine wakes own the row via engagementReason; never start a
     // fallback TeamChat agent until that claim is cleared.
     if (isRoutingOwnershipReason(message.engagementReason)) {

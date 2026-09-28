@@ -4,6 +4,7 @@ import type {
   ExternalConversation,
   MessagingAgentConnection,
   MessagingChannelMembership,
+  MessagingCredential,
   MessagingStatus,
 } from "@rakazo/contracts";
 import {
@@ -20,11 +21,10 @@ import {
 } from "@rakazo/ui-web";
 import { CheckIcon, CopyIcon, InfoIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-
-import type { MessagingCredential } from "@rakazo/contracts";
 import { providerLabel } from "../lib/messaging";
 import { rpc } from "../lib/rpc";
 import { ExternalConversationSettings } from "./ExternalConversationSettings";
+import { SlackConversationOverlay } from "./SlackConversationOverlay";
 
 export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
   const { t } = useLingui();
@@ -34,6 +34,7 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [bots, setBots] = useState<Bot[]>([]);
   const [externalConversations, setExternalConversations] = useState<ExternalConversation[]>([]);
   const [settingsConversationId, setSettingsConversationId] = useState<string | null>(null);
+  const [viewSlackConversationId, setViewSlackConversationId] = useState<string | null>(null);
   const [linkBotId, setLinkBotId] = useState("");
   const [linkCode, setLinkCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -235,8 +236,8 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
               </h4>
               <p className="text-[12.5px] text-muted-foreground">
                 <Trans>
-                  Each bot needs its own Slack App. Create one Slack App per bot in api.slack.com/apps,
-                  then add its Bot Token and Signing Secret below.
+                  Each bot needs its own Slack App. Create one Slack App per bot in
+                  api.slack.com/apps, then add its Bot Token and Signing Secret below.
                 </Trans>
               </p>
 
@@ -270,7 +271,10 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
                     {credentials.map((cred) => {
                       const bot = bots.find((candidate) => candidate.id === cred.botId);
                       return (
-                        <li key={cred.id} className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                        <li
+                          key={cred.id}
+                          className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground"
+                        >
                           <span>{bot?.name ?? cred.botId}:</span>
                           <code className="flex-1 overflow-x-auto rounded border border-border bg-background px-2 py-0.5">
                             {slackWebhookUrl}/{cred.botId}
@@ -332,9 +336,7 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
                     </Trans>
                   </li>
                   <li>
-                    <Trans>
-                      Send the code to the bot in Slack. Repeat for additional bots.
-                    </Trans>
+                    <Trans>Send the code to the bot in Slack. Repeat for additional bots.</Trans>
                   </li>
                 </ol>
               </div>
@@ -406,8 +408,8 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
             </h3>
             <p className="mt-1 text-[12.5px] text-muted-foreground">
               <Trans>
-                Each bot needs its own Slack App credentials to receive messages. Create a Slack App in
-                api.slack.com/apps and paste the Bot Token and Signing Secret here.
+                Each bot needs its own Slack App credentials to receive messages. Create a Slack App
+                in api.slack.com/apps and paste the Bot Token and Signing Secret here.
               </Trans>
             </p>
 
@@ -490,9 +492,7 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
                       ) : (
                         <>
                           <div className="min-w-0">
-                            <span className="font-medium">
-                              {bot?.name ?? t`Unknown bot`}
-                            </span>
+                            <span className="font-medium">{bot?.name ?? t`Unknown bot`}</span>
                             <span className="ml-2 text-[12px] text-muted-foreground">
                               {providerLabel(cred.provider)}
                             </span>
@@ -531,9 +531,7 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
                     <NativeSelect
                       id="cred-bot-select"
                       value={credForm.botId}
-                      onChange={(e) =>
-                        setCredForm((prev) => ({ ...prev, botId: e.target.value }))
-                      }
+                      onChange={(e) => setCredForm((prev) => ({ ...prev, botId: e.target.value }))}
                     >
                       <NativeSelectOption value="">{t`Choose a bot…`}</NativeSelectOption>
                       {bots.map((bot) => (
@@ -569,9 +567,7 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
                     autoComplete="off"
                     placeholder="xoxb-..."
                     value={credForm.botToken}
-                    onChange={(e) =>
-                      setCredForm((prev) => ({ ...prev, botToken: e.target.value }))
-                    }
+                    onChange={(e) => setCredForm((prev) => ({ ...prev, botToken: e.target.value }))}
                   />
                 </Field>
                 <Button
@@ -629,9 +625,12 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
               </div>
               <p className="text-[13px] text-muted-foreground">
                 <Trans>
-                  Send <span className="font-mono font-medium text-foreground">{linkCode}</span> to the
-                  line from your chat app within 10 minutes. It will be linked to{" "}
-                  <strong>{bots.find((b) => b.id === linkBotId)?.name ?? "the selected bot"}</strong>. You'll get a confirmation reply once linked.
+                  Send <span className="font-mono font-medium text-foreground">{linkCode}</span> to
+                  the line from your chat app within 10 minutes. It will be linked to{" "}
+                  <strong>
+                    {bots.find((b) => b.id === linkBotId)?.name ?? "the selected bot"}
+                  </strong>
+                  . You'll get a confirmation reply once linked.
                 </Trans>
               </p>
             </div>
@@ -788,53 +787,87 @@ export function MessagingSettingsOverlay({ onClose }: { onClose: () => void }) {
           <h3 className="text-[15px] font-medium text-foreground">
             <Trans>Team conversations</Trans>
           </h3>
-          {externalConversations.length === 0 ? (
-            <p className="mt-3 text-[13px] text-muted-foreground/70">
-              <Trans>No team conversations yet.</Trans>
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-3">
-              {externalConversations.map((conversation) => {
-                const bot = bots.find((candidate) => candidate.id === conversation.botId);
-                const open = settingsConversationId === conversation.id;
-                return (
-                  <li key={conversation.id} className="text-[14px] text-foreground/75">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="min-w-0 truncate">
-                        {conversation.displayName || t`External conversation`}
-                        <span className="ml-2 text-[12px] text-muted-foreground/70">
-                          {providerLabel(conversation.provider)}
-                        </span>
-                      </span>
-                      <Button
-                        variant="secondary"
-                        className="rounded-full"
-                        onClick={() => setSettingsConversationId(open ? null : conversation.id)}
-                      >
-                        {open ? <Trans>Close</Trans> : <Trans>Settings</Trans>}
-                      </Button>
-                    </div>
-                    {open && bot ? (
-                      <div className="mt-4 rounded-lg border border-border px-3 py-3">
-                        <ExternalConversationSettings
-                          conversation={conversation}
-                          bot={bot}
-                          onSave={async (policy) => {
-                            await rpc.externalConversations.updatePolicy({
-                              externalConversationId: conversation.id,
-                              ...policy,
-                            });
-                            await refresh();
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          {(() => {
+            const slackConversations = externalConversations.filter((c) => c.provider === "slack");
+            const latestSlack = slackConversations[0];
+            return (
+              <>
+                {slackConversations.length > 0 && latestSlack ? (
+                  <div className="mt-3">
+                    <Button
+                      variant="ghost"
+                      className="rounded-full"
+                      onClick={() => setViewSlackConversationId(latestSlack.id)}
+                    >
+                      <Trans>View Slack conversations</Trans>
+                    </Button>
+                  </div>
+                ) : null}
+                {externalConversations.length === 0 ? (
+                  <p className="mt-3 text-[13px] text-muted-foreground/70">
+                    <Trans>No team conversations yet.</Trans>
+                  </p>
+                ) : (
+                  <ul className="mt-3 space-y-3">
+                    {externalConversations.map((conversation) => {
+                      const bot = bots.find((candidate) => candidate.id === conversation.botId);
+                      const open = settingsConversationId === conversation.id;
+                      return (
+                        <li key={conversation.id} className="text-[14px] text-foreground/75">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="min-w-0 truncate">
+                              {conversation.displayName || t`External conversation`}
+                              <span className="ml-2 text-[12px] text-muted-foreground/70">
+                                {providerLabel(conversation.provider)}
+                              </span>
+                            </span>
+                            <Button
+                              variant="secondary"
+                              className="rounded-full"
+                              onClick={() => setSettingsConversationId(open ? null : conversation.id)}
+                            >
+                              {open ? <Trans>Close</Trans> : <Trans>Settings</Trans>}
+                            </Button>
+                          </div>
+                          {open && bot ? (
+                            <div className="mt-4 rounded-lg border border-border px-3 py-3">
+                              <ExternalConversationSettings
+                                conversation={conversation}
+                                bot={bot}
+                                onSave={async (policy) => {
+                                  await rpc.externalConversations.updatePolicy({
+                                    externalConversationId: conversation.id,
+                                    ...policy,
+                                  });
+                                  await refresh();
+                                }}
+                              />
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
+            );
+          })()}
         </section>
+        {viewSlackConversationId ? (() => {
+          const conversation = externalConversations.find((c) => c.id === viewSlackConversationId);
+          const bot = conversation ? bots.find((candidate) => candidate.id === conversation.botId) : null;
+          return (
+            <SlackConversationOverlay
+              botId={bot?.id ?? ""}
+              botName={bot?.name ?? t`Bot`}
+              botColor={bot?.color ?? "#85858A"}
+              conversationId={viewSlackConversationId}
+              displayName={conversation?.displayName ?? t`Slack conversation`}
+              provider="slack"
+              onClose={() => setViewSlackConversationId(null)}
+            />
+          );
+        })() : null}
       </DialogContent>
     </Dialog>
   );

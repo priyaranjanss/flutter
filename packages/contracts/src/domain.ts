@@ -245,8 +245,23 @@ export const ExternalConversationSchema = z.object({
   preview: z.string(),
   unread: z.boolean(),
   updatedAt: z.string(),
+  conversationId: z.string(),
 });
 export type ExternalConversation = z.infer<typeof ExternalConversationSchema>;
+
+export const ExternalMessageSchema = z.object({
+  id: Id,
+  kind: z.string(),
+  senderId: z.string(),
+  senderName: z.string(),
+  senderIsBot: z.boolean(),
+  content: z.string(),
+  replyThreadId: z.string().nullable(),
+  status: z.string(),
+  createdAt: z.string(),
+  providerReplyHandle: z.string().nullable(),
+});
+export type ExternalMessage = z.infer<typeof ExternalMessageSchema>;
 
 export const SpaceSchema = z.object({
   id: Id,

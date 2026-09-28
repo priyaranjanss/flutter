@@ -8,6 +8,19 @@ import type { PrismaClient } from "./client.js";
 import { IsolationError } from "./scope.js";
 import { previewFromBlocks } from "./thread-listing.js";
 
+export interface ExternalMessageRow {
+  id: string;
+  kind: string;
+  senderId: string;
+  senderName: string;
+  senderIsBot: boolean;
+  content: string;
+  replyThreadId: string | null;
+  status: string;
+  createdAt: string;
+  providerReplyHandle: string | null;
+}
+
 export function createExternalConversationRepos(prisma: PrismaClient) {
   return {
     async listForSpaces(actor: Actor, spaceIds: string[]): Promise<ExternalConversation[]> {
@@ -30,6 +43,7 @@ export function createExternalConversationRepos(prisma: PrismaClient) {
           teamChatRules: true,
           automatedSenderPolicies: true,
           updatedAt: true,
+          conversationId: true,
           messages: {
             where: { senderIsBot: true },
             orderBy: { createdAt: "desc" },
@@ -78,6 +92,7 @@ export function createExternalConversationRepos(prisma: PrismaClient) {
           preview: previewFromBlocks(conversation.thread.messages[0]?.blocks),
           unread: conversation.thread.unread,
           updatedAt: conversation.updatedAt.toISOString(),
+          conversationId: conversation.conversationId,
         };
       });
     },
@@ -97,6 +112,55 @@ export function createExternalConversationRepos(prisma: PrismaClient) {
       });
       if (result.count !== 1) throw new IsolationError();
       return policy;
+    },
+
+    async messages(
+      actor: Actor,
+      externalConversationId: string,
+      options?: { before?: string; limit?: number },
+    ): Promise<ExternalMessageRow[]> {
+      const conversation = await prisma.externalConversation.findFirst({
+        where: {
+          id: externalConversationId,
+          spaceId: actor.spaceId,
+          userId: actor.userId,
+        },
+        select: { id: true },
+      });
+      if (!conversation) throw new IsolationError();
+      const limit = options?.limit ?? 100;
+      const rows = await prisma.externalMessage.findMany({
+        where: {
+          externalConversationId: conversation.id,
+          ...(options?.before ? { createdAt: { lt: new Date(options.before) } } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          kind: true,
+          senderId: true,
+          senderName: true,
+          senderIsBot: true,
+          content: true,
+          replyThreadId: true,
+          status: true,
+          createdAt: true,
+          providerReplyHandle: true,
+        },
+      });
+      return rows.reverse().map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        senderId: row.senderId,
+        senderName: row.senderName,
+        senderIsBot: row.senderIsBot,
+        content: row.content,
+        replyThreadId: row.replyThreadId ?? null,
+        status: row.status,
+        createdAt: row.createdAt.toISOString(),
+        providerReplyHandle: row.providerReplyHandle ?? null,
+      }));
     },
   };
 }

@@ -147,6 +147,7 @@ import { readActivityMode, writeActivityMode } from "../lib/activity-mode";
 import type { ArtifactTarget } from "../lib/artifact-open";
 import { authClient } from "../lib/auth";
 import { takeInitialBootstrap } from "../lib/bootstrap";
+import { SlackConversationOverlay } from "./SlackConversationOverlay";
 import {
   BOTS_SIDEBAR_EDGE_DRAG_PX,
   readBotsSidebarCollapsed,
@@ -370,6 +371,7 @@ export function ShellPage() {
     peerBotId: string;
     peerBotName: string;
   } | null>(null);
+  const [slackConversationId, setSlackConversationId] = useState<string | null>(null);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routinesBotId, setRoutinesBotId] = useState<string | null>(null);
   const [taughtSkills, setTaughtSkills] = useState<TaughtSkill[]>([]);
@@ -1722,6 +1724,12 @@ export function ShellPage() {
     (botId: string | undefined) => memberName(transcriptMembers, botId),
     [transcriptMembers],
   );
+  const onOpenSlackConversation = useCallback((conversationId: string) => {
+    setSlackConversationId(conversationId);
+  }, []);
+  const currentExternalConversations = useMemo(() => {
+    return spaces.find((s) => s.id === bootstrapMe?.spaceId)?.externalConversations ?? [];
+  }, [spaces, bootstrapMe?.spaceId]);
   const replyTargetName = activeReplyTarget
     ? activeReplyTarget.role === "user"
       ? t`You`
@@ -3338,6 +3346,8 @@ export function ShellPage() {
             onOpenPeerMessages={(peer) => {
               setPeerConversation(peer);
             }}
+            onOpenSlackConversation={onOpenSlackConversation}
+            externalConversations={currentExternalConversations}
             memberName={resolveTranscriptMemberName}
             peerBot={resolveTranscriptBot}
             onRefresh={refreshActiveThread}
@@ -4192,6 +4202,22 @@ export function ShellPage() {
             onClose={() => setPeerConversation(null)}
           />
         ) : null}
+        {slackConversationId && active ? (
+          <SlackConversationOverlay
+            botId={active.id}
+            botName={active.name}
+            botColor={active.color}
+            conversationId={slackConversationId}
+            displayName={
+              spaces
+                .find((s) => s.id === bootstrapMe?.spaceId)
+                ?.externalConversations.find((c) => c.id === slackConversationId)?.displayName ??
+              t`Slack conversation`
+            }
+            provider="slack"
+            onClose={() => setSlackConversationId(null)}
+          />
+        ) : null}
         {callOpen && active ? (
           <CallView
             botId={active.id}
@@ -4381,6 +4407,8 @@ const Transcript = memo(function Transcript({
   onReact,
   onJumpToMessage,
   onOpenPeerMessages,
+  onOpenSlackConversation,
+  externalConversations,
   memberName,
   peerBot,
   onRefresh,
@@ -4407,6 +4435,8 @@ const Transcript = memo(function Transcript({
   onReact: (message: ThreadMessage, reaction: MessageReaction) => Promise<void>;
   onJumpToMessage: (messageId: string) => void;
   onOpenPeerMessages: (peer: { peerBotId: string; peerBotName: string }) => void;
+  onOpenSlackConversation: (conversationId: string) => void;
+  externalConversations: Array<{ id: string; provider: string; conversationId: string }>;
   memberName?: (botId: string | undefined) => string | undefined;
   peerBot: (botId: string) => { color: string; status?: string } | undefined;
   onRefresh: () => Promise<void>;
@@ -4662,37 +4692,39 @@ const Transcript = memo(function Transcript({
                       onReact={onReact}
                     />
                   )}
-                  <MessageView
-                    artifactTarget={artifactTarget}
-                    message={message}
-                    canAnswer={message.id === answerableAskMessageId}
-                    onOpenBot={onOpenBot}
-                    onOpenPeerMessages={onOpenPeerMessages}
-                    onAnswer={onAnswer}
-                    speakerName={
-                      peerReceipt
-                        ? undefined
-                        : message.role === "bot"
-                          ? memberName?.(message.botId)
-                          : undefined
-                    }
-                    memberName={memberName}
-                    peerBot={peerBot}
-                    replyPreview={
-                      message.replyToMessageId
-                        ? messageById.get(message.replyToMessageId)
-                        : undefined
-                    }
-                    replyToMessageId={message.replyToMessageId}
-                    onJumpToMessage={onJumpToMessage}
-                    onRefresh={onRefresh}
-                    onBotChanged={onBotChanged}
-                    onAddRoutine={onAddRoutine}
-                    voiceReady={voiceReady}
-                    speaking={speakingMessageId === message.id}
-                    onSpeak={() => onSpeak(message)}
-                    onOpenComputer={onOpenComputer}
-                  />
+                    <MessageView
+                      artifactTarget={artifactTarget}
+                      message={message}
+                      canAnswer={message.id === answerableAskMessageId}
+                      onOpenBot={onOpenBot}
+                      onOpenPeerMessages={onOpenPeerMessages}
+                      onOpenSlackConversation={onOpenSlackConversation}
+                      externalConversations={externalConversations}
+                      onAnswer={onAnswer}
+                     speakerName={
+                       peerReceipt
+                         ? undefined
+                         : message.role === "bot"
+                           ? memberName?.(message.botId)
+                           : undefined
+                     }
+                     memberName={memberName}
+                     peerBot={peerBot}
+                     replyPreview={
+                       message.replyToMessageId
+                         ? messageById.get(message.replyToMessageId)
+                         : undefined
+                     }
+                     replyToMessageId={message.replyToMessageId}
+                     onJumpToMessage={onJumpToMessage}
+                     onRefresh={onRefresh}
+                     onBotChanged={onBotChanged}
+                     onAddRoutine={onAddRoutine}
+                     voiceReady={voiceReady}
+                     speaking={speakingMessageId === message.id}
+                     onSpeak={() => onSpeak(message)}
+                     onOpenComputer={onOpenComputer}
+                   />
                 </div>
               </div>
               {!peerReceipt && messageReactions ? (
@@ -5751,6 +5783,8 @@ const MessageView = memo(function MessageView({
   onAnswer,
   onOpenBot,
   onOpenPeerMessages,
+  onOpenSlackConversation,
+  externalConversations,
   speakerName,
   memberName,
   peerBot,
@@ -5771,6 +5805,8 @@ const MessageView = memo(function MessageView({
   onAnswer: (message: ThreadMessage, text: string) => Promise<void>;
   onOpenBot: (botId: string) => void;
   onOpenPeerMessages: (peer: { peerBotId: string; peerBotName: string }) => void;
+  onOpenSlackConversation: (conversationId: string) => void;
+  externalConversations: Array<{ id: string; provider: string; conversationId: string }>;
   speakerName?: string;
   memberName?: (botId: string | undefined) => string | undefined;
   peerBot: (botId: string) => { color: string; status?: string } | undefined;
@@ -5911,6 +5947,25 @@ const MessageView = memo(function MessageView({
           );
         }
         if (block.kind === "channel_message") {
+          if (block.provider === "slack") {
+            const conversation = externalConversations.find(
+              (c) => c.conversationId === block.channelId,
+            );
+            if (conversation) {
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onOpenSlackConversation(conversation.id)}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground/75"
+                >
+                  <span>Slack</span>
+                  <span className="truncate">· {block.fromLabel}</span>
+                </button>
+              );
+            }
+            return null;
+          }
           return (
             <div
               key={i}

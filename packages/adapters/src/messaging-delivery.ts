@@ -151,7 +151,7 @@ async function mirrorChannelRun(
     where: { id: channelBlock.channelId },
   });
   if (!channel) return;
-  const owner = await deps.prisma.user.findUnique({
+  const _owner = await deps.prisma.user.findUnique({
     where: { id: identity.userId },
     select: { name: true },
   });

@@ -31,6 +31,7 @@ import {
   DeploymentSettingsSchema,
   ExportManifestSchema,
   ExternalConversationPolicySchema,
+  ExternalMessageSchema,
   GroupDetailSchema,
   GroupSchema,
   IntegrationCatalogResultSchema,
@@ -842,6 +843,15 @@ export const appContract = {
     updatePolicy: oc
       .input(UpdateExternalConversationPolicyInput)
       .output(ExternalConversationPolicySchema),
+    messages: oc
+      .input(
+        z.object({
+          externalConversationId: Id,
+          before: z.string().optional(),
+          limit: z.number().int().positive().max(200).optional(),
+        }),
+      )
+      .output(z.array(ExternalMessageSchema)),
   },
   agentSecrets: {
     list: oc.output(z.array(AgentSecretSchema)),

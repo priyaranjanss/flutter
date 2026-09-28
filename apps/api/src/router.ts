@@ -4350,7 +4350,11 @@ export function createRouter(deps: RouterDeps) {
         }),
         create: authed.messaging.credentials.create.handler(async ({ context, input }) => {
           const bot = await deps.prisma.bot.findFirst({
-            where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
+            where: {
+              id: input.botId,
+              spaceId: context.actor.spaceId,
+              userId: context.actor.userId,
+            },
             select: { id: true },
           });
           if (!bot) throw new ORPCError("NOT_FOUND");
@@ -4419,6 +4423,13 @@ export function createRouter(deps: RouterDeps) {
           );
         },
       ),
+      messages: authed.externalConversations.messages.handler(async ({ context, input }) => {
+        return createExternalConversationRepos(deps.prisma).messages(
+          context.actor,
+          input.externalConversationId,
+          { before: input.before, limit: input.limit },
+        );
+      }),
     },
     agentSecrets: {
       list: authed.agentSecrets.list.handler(async ({ context }) =>
